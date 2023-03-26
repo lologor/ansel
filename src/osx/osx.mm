@@ -170,7 +170,7 @@ static void _setup_ssl_trust(const char* const res_path)
 {
 #ifdef HAVE_P11KIT
   gchar* const hash = g_compute_checksum_for_string(G_CHECKSUM_SHA1, res_path, strlen(res_path));
-  gchar* const file_path = g_build_filename(g_get_user_data_dir(), "darktable", "pkcs11", hash, "p11-kit-trust.module", NULL);
+  gchar* const file_path = g_build_filename(g_get_user_data_dir(), "ansel", "pkcs11", hash, "p11-kit-trust.module", NULL);
   g_free(hash);
   {
     GFile* const cfg_file = g_file_new_for_path(file_path);
