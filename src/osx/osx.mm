@@ -263,16 +263,6 @@ void dt_osx_prepare_environment()
     {
       gchar* lib_path = g_build_filename(res_path, "lib", NULL);
       {
-        gchar* io_path = g_build_filename(lib_path, "libgphoto2_port", NULL);
-        g_setenv("IOLIBS", io_path, TRUE);
-        g_free(io_path);
-      }
-      {
-        gchar* cam_path = g_build_filename(lib_path, "libgphoto2", NULL);
-        g_setenv("CAMLIBS", cam_path, TRUE);
-        g_free(cam_path);
-      }
-      {
         gchar* gio_path = g_build_filename(lib_path, "gio", "modules", NULL);
         g_setenv("GIO_MODULE_DIR", gio_path, TRUE);
         g_free(gio_path);
