@@ -11,9 +11,21 @@ How to make disk image with ansel application bundle from source (using Homebrew
 
      $ brew edit graphicsmagick 
        
-     This opens the graphicsmagick homebrew formula in the editor. Locate and delete
-     the following line:
-       --with-modules
+     This opens the graphicsmagick homebrew formula in the editor. Change the building
+     parameters to:
+       def install
+          args = %W[
+               --prefix=#{prefix}‚
+               --disable-dependency-tracking
+               --enable-shared
+               --with-quantum-depth=16
+               --without-lzma
+               --without-x
+               --without-gslib
+               --with-gs-font-dir=#{HOMEBREW_PREFIX}/share/ghostscript/fonts
+               --without-wmf
+               --with-jxl
+          ]
 
      Reinstall graphicsmagick:
 
