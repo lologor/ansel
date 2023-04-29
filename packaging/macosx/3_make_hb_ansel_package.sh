@@ -18,7 +18,7 @@ cd "$scriptDir"/
 # Define base variables
 buildDir="../../build/macosx"
 dtPackageDir="$buildDir"/package
-dtAppName="ansel"
+dtAppName="Ansel"
 dtWorkingDir="$dtPackageDir"/"$dtAppName".app
 dtResourcesDir="$dtWorkingDir"/Contents/Resources
 dtExecDir="$dtWorkingDir"/Contents/MacOS
@@ -272,10 +272,10 @@ cp open.desktop "$dtResourcesDir"/share/applications/
 # Sign app bundle
 if [ -n "$CODECERT" ]; then
     # Use certificate if one has been provided
-    find ${dtPackageDir}/ansel.app/Contents/Resources/lib -type f -exec codesign --verbose --force --options runtime -i "org.ansel" -s "${CODECERT}" \{} \;
-    codesign --deep --verbose --force --options runtime -i "photos.ansel" -s "${CODECERT}" ${dtPackageDir}/ansel.app
+    find ${dtPackageDir}/"$dtAppName".app/Contents/Resources/lib -type f -exec codesign --verbose --force --options runtime -i "org.ansel" -s "${CODECERT}" \{} \;
+    codesign --deep --verbose --force --options runtime -i "photos.ansel" -s "${CODECERT}" ${dtPackageDir}/"$dtAppName".app
 else
     # Use ad-hoc signing and preserve metadata
-    find ${dtPackageDir}/ansel.app/Contents/Resources/lib -type f -exec codesign --verbose --force --preserve-metadata=entitlements,requirements,flags,runtime -i "org.ansel" -s - \{} \;
-    codesign --deep --verbose --force --preserve-metadata=entitlements,requirements,flags,runtime -i "photos.ansel" -s - ${dtPackageDir}/ansel.app
+    find ${dtPackageDir}/"$dtAppName".app/Contents/Resources/lib -type f -exec codesign --verbose --force --preserve-metadata=entitlements,requirements,flags,runtime -i "org.ansel" -s - \{} \;
+    codesign --deep --verbose --force --preserve-metadata=entitlements,requirements,flags,runtime -i "photos.ansel" -s - ${dtPackageDir}/"$dtAppName".app
 fi

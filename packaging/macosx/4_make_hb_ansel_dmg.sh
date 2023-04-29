@@ -8,7 +8,7 @@ set -e -o pipefail
 trap 'echo "${BASH_SOURCE[0]}{${FUNCNAME[0]}}:${LINENO}: Error: command \`${BASH_COMMAND}\` failed with exit code $?"' ERR
 
 # Define application name
-PROGN=ansel
+PROGN=Ansel
 
 # Go to directory of script
 scriptDir=$(dirname "$0")
