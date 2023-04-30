@@ -35,9 +35,7 @@ How to make disk image with ansel application bundle from source (using Homebrew
      Now you have a statically linked GraphicsMagick library.
 
 2). Build and install ansel using either option A or B:
-     - Option A: Build using the default build.sh, which should work for most use cases 
-     $ 2_build_hb_ansel_default.sh
-     - Option B: Build using custom cmake options, edit according to your specific needs/environment
+     Build using custom cmake options, edit according to your specific needs/environment
      $ 2_build_hb_ansel_custom.sh
 
 3). Create application bundle from build files. To properly sign the app bundle you can optionally provide your developer certificate email/id by defining CODECERT:
