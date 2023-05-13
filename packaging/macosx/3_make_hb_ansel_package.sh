@@ -163,6 +163,7 @@ fi
 mkdir -p "$dtExecDir"
 mkdir -p "$dtResourcesDir"/share/applications
 mkdir -p "$dtResourcesDir"/etc/gtk-3.0
+mkdir -p "$dtResourcesDir"/fonts
 
 # Add basic elements
 cp Info.plist "$dtWorkingDir"/Contents/
@@ -268,6 +269,9 @@ done
 # Add gtk files
 cp defaults.list "$dtResourcesDir"/share/applications/
 cp open.desktop "$dtResourcesDir"/share/applications/
+
+# Add fonts
+cp fonts/*  "$dtResourcesDir"/fonts/
 
 # Sign app bundle
 if [ -n "$CODECERT" ]; then
