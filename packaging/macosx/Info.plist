@@ -58,6 +58,6 @@
 		<string>RobotoCondensed-Regular.ttf</string>
 	</array>
 	<key>ATSApplicationFontsPath</key>
-	<string>.</string>
+	<string>fonts/</string>
 </dict>
 </plist>
