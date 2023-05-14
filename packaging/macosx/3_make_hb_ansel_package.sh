@@ -168,7 +168,6 @@ mkdir -p "$dtResourcesDir"/fonts
 # Add basic elements
 cp Info.plist "$dtWorkingDir"/Contents/
 echo "APPL$dtAppName" >>"$dtWorkingDir"/Contents/PkgInfo
-cp Icons.icns "$dtResourcesDir"/
 
 # Set version information
 sed -i '' 's|{VERSION}|'$(git describe --tags --long --match '*[0-9.][0-9.][0-9]' | cut -d- -f2 | sed 's/^\([0-9]*\.[0-9]*\)$/\1.0/')'|' "$dtWorkingDir"/Contents/Info.plist
@@ -272,6 +271,30 @@ cp open.desktop "$dtResourcesDir"/share/applications/
 
 # Add fonts
 cp fonts/*  "$dtResourcesDir"/fonts/
+
+# Create Icon file
+if [ -d "$buildDir"/Icons.iconset ]; then
+    rm -R "$buildDir/Icons.iconset"
+fi
+mkdir "$buildDir"/Icons.iconset
+rsvg-convert -h 644 ../../data/pixmaps/scalable/ansel.svg > "$buildDir/Icons.iconset/icon_512x512.png"
+gm mogrify -crop 512x512+66+66 "$buildDir/Icons.iconset/icon_512x512.png"
+cp  "$buildDir/Icons.iconset/icon_512x512.png" "$buildDir/Icons.iconset/icon_256x256@2.png"
+rsvg-convert -h 322 ../../data/pixmaps/scalable/ansel.svg > "$buildDir/Icons.iconset/icon_256x256.png"
+gm mogrify -crop 256x256+33+33 "$buildDir/Icons.iconset/icon_256x256.png"
+cp  "$buildDir/Icons.iconset/icon_256x256.png" "$buildDir/Icons.iconset/icon_128x128@2.png"
+rsvg-convert -h 162 ../../data/pixmaps/scalable/ansel.svg > "$buildDir/Icons.iconset/icon_128x128.png"
+gm mogrify -crop 128x128+17+17 "$buildDir/Icons.iconset/icon_128x128.png"
+rsvg-convert -h 40 ../../data/pixmaps/scalable/ansel.svg > "$buildDir/Icons.iconset/icon_32x32.png"
+gm mogrify -crop 32x32+4+4 "$buildDir/Icons.iconset/icon_32x32.png"
+cp  "$buildDir/Icons.iconset/icon_32x32.png" "$buildDir/Icons.iconset/icon_16x168@2.png"
+rsvg-convert -h 20 ../../data/pixmaps/scalable/ansel.svg > "$buildDir/Icons.iconset/icon_16x16.png"
+gm mogrify -crop 16x16+2+2 "$buildDir/Icons.iconset/icon_16x16.png"
+if [ -f "$buildDir/Icons.icns" ]; then
+    rm "$buildDir/Icons.icns"
+fi
+iconutil -c icns "$buildDir/Icons.iconset"
+cp "$buildDir/Icons.icns" "$dtResourcesDir"/
 
 # Sign app bundle
 if [ -n "$CODECERT" ]; then
