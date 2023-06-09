@@ -518,7 +518,7 @@ static void import_clicked(GtkWidget *w, gpointer user_data)
   filter = GTK_FILE_FILTER(gtk_file_filter_new());
   gtk_file_filter_add_pattern(filter, "*.dtstyle");
   gtk_file_filter_add_pattern(filter, "*.DTSTYLE");
-  gtk_file_filter_set_name(filter, _("darktable style files"));
+  gtk_file_filter_set_name(filter, _("Ansel style files"));
   gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(filechooser), filter);
 
   filter = GTK_FILE_FILTER(gtk_file_filter_new());
@@ -833,9 +833,9 @@ void gui_init(dt_lib_module_t *self)
   GtkWidget *hbox1 = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   GtkWidget *hbox2 = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
   GtkWidget *hbox3 = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-  gtk_box_pack_start(GTK_BOX(self->widget), hbox1, TRUE, FALSE, 0);
-  gtk_box_pack_start(GTK_BOX(self->widget), hbox2, TRUE, FALSE, 0);
-  gtk_box_pack_start(GTK_BOX(self->widget), hbox3, TRUE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(hbox1), TRUE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(hbox2), TRUE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(hbox3), TRUE, FALSE, 0);
 
   // create
   d->create_button = dt_action_button_new(self, N_("create..."), create_clicked, d, _("create styles from history stack of selected images"), 0, 0);

@@ -113,7 +113,6 @@ typedef struct dt_mouse_action_t
 /**
  * main dt view module (as lighttable or darkroom)
  */
-struct dt_view_t;
 typedef struct dt_view_t
 {
   dt_action_t actions; // !!! NEEDS to be FIRST (to be able to cast convert)

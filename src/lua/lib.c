@@ -157,9 +157,9 @@ int dt_lua_init_early_lib(lua_State *L)
   luaA_enum_value(L, dt_ui_container_t, DT_UI_CONTAINER_PANEL_RIGHT_TOP);
   luaA_enum_value(L, dt_ui_container_t, DT_UI_CONTAINER_PANEL_RIGHT_CENTER);
   luaA_enum_value(L, dt_ui_container_t, DT_UI_CONTAINER_PANEL_RIGHT_BOTTOM);
-  luaA_enum_value(L, dt_ui_container_t, DT_UI_CONTAINER_PANEL_TOP_LEFT);
-  luaA_enum_value(L, dt_ui_container_t, DT_UI_CONTAINER_PANEL_TOP_CENTER);
-  luaA_enum_value(L, dt_ui_container_t, DT_UI_CONTAINER_PANEL_TOP_RIGHT);
+  luaA_enum_value(L, dt_ui_container_t, DT_UI_CONTAINER_PANEL_TOP_FIRST_ROW);
+  luaA_enum_value(L, dt_ui_container_t, DT_UI_CONTAINER_PANEL_TOP_SECOND_ROW);
+  luaA_enum_value(L, dt_ui_container_t, DT_UI_CONTAINER_PANEL_TOP_THIRD_ROW);
   luaA_enum_value(L, dt_ui_container_t, DT_UI_CONTAINER_PANEL_CENTER_TOP_LEFT);
   luaA_enum_value(L, dt_ui_container_t, DT_UI_CONTAINER_PANEL_CENTER_TOP_CENTER);
   luaA_enum_value(L, dt_ui_container_t, DT_UI_CONTAINER_PANEL_CENTER_TOP_RIGHT);
@@ -203,4 +203,3 @@ int dt_lua_init_early_lib(lua_State *L)
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
 // clang-format on
-

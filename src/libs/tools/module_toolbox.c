@@ -99,11 +99,11 @@ void view_enter(struct dt_lib_module_t *self,struct dt_view_t *old_view,struct d
     child_data_t* child_data = (child_data_t*)child_elt->data;
     if(child_data->views & nv)
     {
-      gtk_widget_show_all(child_data->child);
+      gtk_widget_show_all(GTK_WIDGET(child_data->child));
     }
     else
     {
-      gtk_widget_hide(child_data->child);
+      gtk_widget_hide(GTK_WIDGET(child_data->child));
     }
   }
 }
@@ -111,8 +111,8 @@ void view_enter(struct dt_lib_module_t *self,struct dt_view_t *old_view,struct d
 static void _lib_module_toolbox_add(dt_lib_module_t *self, GtkWidget *widget, dt_view_type_flags_t views)
 {
   dt_lib_module_toolbox_t *d = (dt_lib_module_toolbox_t *)self->data;
-  gtk_box_pack_start(GTK_BOX(d->container), widget, TRUE, FALSE, 0);
-  gtk_widget_show_all(widget);
+  gtk_box_pack_start(GTK_BOX(d->container), GTK_WIDGET(widget), TRUE, FALSE, 0);
+  gtk_widget_show_all(GTK_WIDGET(widget));
 
   child_data_t *child_data = malloc(sizeof(child_data_t));
   child_data->child = widget;
@@ -125,4 +125,3 @@ static void _lib_module_toolbox_add(dt_lib_module_t *self, GtkWidget *widget, dt
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
 // clang-format on
-

@@ -59,6 +59,18 @@ void open_chat_callback(GtkWidget *widget)
   "https://app.element.io/#/room/#ansel:matrix.org", GDK_CURRENT_TIME, NULL);
 }
 
+void open_search_callback(GtkWidget *widget)
+{
+  gtk_show_uri_on_window(GTK_WINDOW(dt_ui_main_window(darktable.gui->ui)),
+  "https://chantal.aurelienpierre.com", GDK_CURRENT_TIME, NULL);
+}
+
+void open_forum_callback(GtkWidget *widget)
+{
+  gtk_show_uri_on_window(GTK_WINDOW(dt_ui_main_window(darktable.gui->ui)),
+  "https://community.ansel.photos", GDK_CURRENT_TIME, NULL);
+}
+
 // TODO: this doesn't work for all widgets. the reason being that the GtkEventBox we put libs/iops into catches events.
 static char *get_help_url(GtkWidget *widget)
 {
@@ -193,7 +205,9 @@ void append_help(GtkWidget **menus, GList **lists, const dt_menus_t index)
 {
   add_sub_menu_entry(menus, lists, _("Online documentation"), index, NULL, open_doc_callback, NULL, NULL, NULL);
   add_sub_menu_entry(menus, lists, _("Book a training session"), index, NULL, open_booking_callback, NULL, NULL, NULL);
-  add_sub_menu_entry(menus, lists, _("Support chat"), index, NULL, open_chat_callback, NULL, NULL, NULL);
+  add_sub_menu_entry(menus, lists, _("Ask a question"), index, NULL, open_search_callback, NULL, NULL, NULL);
+  add_sub_menu_entry(menus, lists, _("Join the support chat"), index, NULL, open_chat_callback, NULL, NULL, NULL);
+  add_sub_menu_entry(menus, lists, _("Join the support forum"), index, NULL, open_forum_callback, NULL, NULL, NULL);
   add_menu_separator(menus[index]);
   add_sub_menu_entry(menus, lists, _("Open contextual help"), index, NULL, contextual_help_callback, NULL, NULL, NULL);
   add_sub_menu_entry(menus, lists, _("Table of key shortcuts"), index, NULL, show_accels_callback, NULL, NULL, NULL);

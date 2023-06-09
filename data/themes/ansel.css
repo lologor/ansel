@@ -468,7 +468,14 @@ separator
 #top
 {
   background-color: @grey_35;
-  border-bottom: 2px solid @grey_30;
+  border-bottom: 2px solid @grey_35;
+}
+
+#top-second-line {
+  margin: 0;
+  padding-left: 0.25em;
+  border-top: 1px solid @grey_30;
+  background-color: @bg_color;
 }
 
 #menu-bar menuitem
@@ -517,6 +524,16 @@ menubar menuitem label
 #footer-toolbar
 {
   padding: 0.14em 0.28em;
+  background-color: @bg_color;
+}
+
+#header-toolbar {
+  background-color: @darkroom_bg_color;
+}
+
+#hinter /* label */
+{
+  padding: 0.14em 0;
 }
 
 /* Set toolbars buttons in lighttable and darkroom views ; and top right button in accels window */
@@ -555,6 +572,7 @@ dialog .sidebar row:selected:hover label,
 #mask-toolbar #bauhaus-slider
 {
   background-color: @bg_color;
+  margin-left: 0.25em;
 }
 
 
@@ -1395,6 +1413,13 @@ filechooser row:hover .sidebar-icon
   background-color: @grey_65;
 }
 
+.menu-text-entry {
+  margin: 2px 0.5em;
+  border: 0;
+  padding: 0 0.5em;
+  background-color: @grey_50;
+}
+
 #quickfilter-search-box,
 #lib-label-colors
 {
@@ -1413,6 +1438,7 @@ filechooser row:hover .sidebar-icon
   font-family: sans-serif;
   font-weight: 500;
   margin-right: 1em;
+  padding-left: 0.25em;
 }
 
 /*------------

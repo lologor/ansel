@@ -31,7 +31,7 @@ const char **views(dt_lib_module_t *self)
 
 uint32_t container(dt_lib_module_t *self)
 {
-  return DT_UI_CONTAINER_PANEL_CENTER_TOP_LEFT;
+  return DT_UI_CONTAINER_PANEL_TOP_SECOND_ROW;
 }
 
 int expandable(dt_lib_module_t *self)
@@ -101,6 +101,8 @@ void gui_init(dt_lib_module_t *self)
   dt_lib_tool_mask_t *d = (dt_lib_tool_mask_t *)g_malloc0(sizeof(dt_lib_tool_mask_t));
   self->data = (void *)d;
   self->widget = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  gtk_widget_set_halign(self->widget, GTK_ALIGN_START);
+  gtk_widget_set_valign(self->widget, GTK_ALIGN_CENTER);
   gtk_widget_set_name(self->widget, "mask-toolbar");
 
   d->opacity = dt_bauhaus_slider_new_with_range(NULL, 0., 1., 0.01, 1., 2);
@@ -109,21 +111,21 @@ void gui_init(dt_lib_module_t *self)
   dt_bauhaus_slider_set_format(d->opacity, "%");
   dt_bauhaus_slider_set(d->opacity, dt_conf_get_float("plugins/darkroom/masks/opacity"));
   gtk_widget_set_size_request(d->opacity, DT_PIXEL_APPLY_DPI(250), DT_PIXEL_APPLY_DPI(12));
-  gtk_box_pack_start(GTK_BOX(self->widget), d->opacity, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(d->opacity), TRUE, TRUE, 0);
   gtk_widget_set_sensitive(d->opacity, FALSE);
   gtk_widget_set_tooltip_text(d->opacity, _("Control the opacity of the currently-selected mask form.\n"
                                             "This works only after a mask has been selected by click."));
   g_signal_connect(G_OBJECT(d->opacity), "value-changed", G_CALLBACK(_opacity_changed_callback), self);
 
   d->mask_lock = gtk_check_button_new_with_label(_("Lock masks"));
-  gtk_box_pack_start(GTK_BOX(self->widget), d->mask_lock, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(d->mask_lock), FALSE, FALSE, 0);
   gtk_widget_set_tooltip_text(d->mask_lock, _("Prevent accidental masks displacement when moving the view"));
   g_signal_connect(G_OBJECT(d->mask_lock), "toggled", G_CALLBACK(mask_lock_callback), self);
 
   DT_DEBUG_CONTROL_SIGNAL_CONNECT(darktable.signals, DT_SIGNAL_MASK_SELECTION_CHANGED,
                                   G_CALLBACK(give_control_to_form), (gpointer)d);
 
-  gtk_widget_show_all(self->widget);
+  gtk_widget_show_all(GTK_WIDGET(self->widget));
 }
 
 void gui_cleanup(dt_lib_module_t *self)

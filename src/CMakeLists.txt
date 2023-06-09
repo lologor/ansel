@@ -147,6 +147,7 @@ FILE(GLOB SOURCE_FILES
   "gui/styles_dialog.c"
   "gui/color_picker_proxy.c"
   "gui/import_metadata.c"
+  "gui/window_manager.c"
   "libs/lib.c"
   "views/view.c"
   )

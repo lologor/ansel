@@ -44,13 +44,13 @@ const char *name(dt_lib_module_t *self)
 
 const char **views(dt_lib_module_t *self)
 {
-  static const char *v[] = {NULL};
+  static const char *v[] = {"lighttable", "darkroom", "map", "tethering", NULL};
   return v;
 }
 
 uint32_t container(dt_lib_module_t *self)
 {
-  return DT_UI_CONTAINER_PANEL_TOP_CENTER;
+  return DT_UI_CONTAINER_PANEL_CENTER_TOP_CENTER;
 }
 
 int expandable(dt_lib_module_t *self)
@@ -74,6 +74,12 @@ void gui_init(dt_lib_module_t *self)
   d->label = gtk_label_new("");
   gtk_label_set_ellipsize(GTK_LABEL(d->label), PANGO_ELLIPSIZE_END);
   gtk_container_add(GTK_CONTAINER(self->widget), d->label);
+  gtk_widget_set_name(d->label, "hinter");
+
+  gtk_widget_set_halign(GTK_WIDGET(self->widget), GTK_ALIGN_CENTER);
+  gtk_widget_set_hexpand(GTK_WIDGET(self->widget), TRUE);
+  gtk_label_set_justify(GTK_LABEL(d->label), GTK_JUSTIFY_CENTER);
+  gtk_label_set_line_wrap(GTK_LABEL(d->label), TRUE);
 
   darktable.control->proxy.hinter.module = self;
   darktable.control->proxy.hinter.set_message = _lib_hinter_set_message;
@@ -90,7 +96,12 @@ void gui_cleanup(dt_lib_module_t *self)
 void _lib_hinter_set_message(dt_lib_module_t *self, const char *message)
 {
   dt_lib_hinter_t *d = (dt_lib_hinter_t *)self->data;
-  gtk_label_set_markup(GTK_LABEL(d->label), message);
+
+  // Remove hacky attempts of line wrapping with hardcoded newline :
+  // Line wrap is handled by Gtk at the label scope.
+  char **split = g_strsplit(message, "\n", -1);
+  gtk_label_set_markup(GTK_LABEL(d->label), g_strjoinv(", ", split));
+  g_strfreev(split);
 }
 // clang-format off
 // modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py

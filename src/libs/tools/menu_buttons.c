@@ -49,7 +49,7 @@ const char **views(dt_lib_module_t *self)
 
 uint32_t container(dt_lib_module_t *self)
 {
-  return DT_UI_CONTAINER_PANEL_TOP_RIGHT;
+  return DT_UI_CONTAINER_PANEL_TOP_FIRST_ROW;
 }
 
 int expandable(dt_lib_module_t *self)
@@ -73,12 +73,13 @@ void gui_init(dt_lib_module_t *self)
   self->data = (void *)d;
 
   /* Init container widget */
-  self->widget = gtk_box_new(FALSE, 0);
+  self->widget = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  gtk_widget_set_halign(GTK_WIDGET(self->widget), GTK_ALIGN_END);
 
   d->close_button = dtgtk_button_new(dtgtk_cairo_paint_reject, 0, NULL);
   gtk_widget_set_tooltip_text(d->close_button, _("Close the current view and go back to lighttable"));
   g_signal_connect(G_OBJECT(d->close_button), "clicked", G_CALLBACK(_switch_to_lighttable), NULL);
-  gtk_box_pack_end(GTK_BOX(self->widget), d->close_button, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(d->close_button), TRUE, TRUE, 0);
 }
 
 void gui_cleanup(dt_lib_module_t *self)

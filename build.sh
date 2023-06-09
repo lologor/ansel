@@ -15,12 +15,13 @@ DT_SRC_DIR=$(cd "$DT_SRC_DIR" && pwd -P)
 
 INSTALL_PREFIX_DEFAULT="/opt/ansel"
 INSTALL_PREFIX="$INSTALL_PREFIX_DEFAULT"
-BUILD_TYPE_DEFAULT="RelWithDebInfo"
+BUILD_TYPE_DEFAULT="Release"
 BUILD_TYPE="$BUILD_TYPE_DEFAULT"
 BUILD_DIR_DEFAULT="$DT_SRC_DIR/build"
 BUILD_DIR="$BUILD_DIR_DEFAULT"
 BUILD_GENERATOR_DEFAULT="Ninja"
 BUILD_GENERATOR="$BUILD_GENERATOR_DEFAULT"
+BUILD_PACKAGE=0
 MAKE_TASKS=-1
 ADDRESS_SANITIZER=0
 DO_CLEAN_BUILD=0
@@ -34,7 +35,7 @@ SUDO=""
 
 PRINT_HELP=0
 
-FEATURES="CAMERA COLORD FLICKR GRAPHICSMAGICK IMAGEMAGICK KWALLET LIBSECRET LUA MAP MAC_INTEGRATION NLS OPENCL OPENEXR OPENMP UNITY WEBP GAME"
+FEATURES="CAMERA COLORD GRAPHICSMAGICK IMAGEMAGICK KWALLET LIBSECRET LUA MAP MAC_INTEGRATION NLS OPENCL OPENEXR OPENMP WEBP"
 
 # prepare a lowercase version with a space before and after
 # it's very important for parse_feature, has no impact in for loop expansions
@@ -88,6 +89,10 @@ parse_args()
 			;;
 		--build-generator)
 			BUILD_GENERATOR="$2"
+			shift
+			;;
+		--build-package)
+			BUILD_PACKAGE=1
 			shift
 			;;
 		-j|--jobs)
@@ -150,6 +155,7 @@ Build:
                               (default: $BUILD_TYPE_DEFAULT)
    --build-generator <string> Build tool
                               (default: Unix Makefiles)
+	 --build-package            Build a binary package with only generic optimizations.
 
 -j --jobs <integer>           Number of tasks
                               (default: number of CPUs)
@@ -325,13 +331,23 @@ else
 	CPU_ARCHITECTURE="Intel"
 fi
 
+# ---------------------------------------------------------------------------
+# Generic package or customized build ?
+# ---------------------------------------------------------------------------
+
+if [[ $BUILD_PACKAGE == 1 ]]
+then
+	CMAKE_MORE_OPTIONS="${CMAKE_MORE_OPTIONS} -DBINARY_PACKAGE_BUILD=ON"
+else
+	CMAKE_MORE_OPTIONS="${CMAKE_MORE_OPTIONS} -DBINARY_PACKAGE_BUILD=OFF"
+fi
 
 # ---------------------------------------------------------------------------
 # Let's go
 # ---------------------------------------------------------------------------
 
 cat <<EOF
-ansel build script
+Ansel build script
 
 Building directory:  $BUILD_DIR
 Installation prefix: $INSTALL_PREFIX
@@ -382,6 +398,12 @@ cmd_config="${ASAN_FLAGS}cmake -G \"$BUILD_GENERATOR\" -DCMAKE_INSTALL_PREFIX=${
 cmd_build="cmake --build "$BUILD_DIR" -- -j$MAKE_TASKS"
 cmd_install="${SUDO}cmake --build \"$BUILD_DIR\" --target install -- -j$MAKE_TASKS"
 
+cat <<EOF
+
+Complete build options:
+$cmd_config
+
+EOF
 
 OLDPWD="$(pwd)"
 
@@ -426,6 +448,17 @@ fi
 # install the binaries
 eval "$cmd_install"
 
+# install the desktop launcher and system-wide command
 if [ $DO_INSTALL ] ; then
+	if [ -f "/usr/local/bin/ansel" ]; then
+		$SUDO rm /usr/local/bin/ansel
+	fi
+
 	$SUDO ln -s $INSTALL_PREFIX/bin/ansel /usr/local/bin/ansel
+
+	if [ -f "/usr/share/applications/ansel.desktop" ]; then
+		$SUDO rm /usr/share/applications/ansel.desktop
+	fi
+
+	$SUDO ln -s $INSTALL_PREFIX/share/applications/photos.ansel.app.desktop /usr/share/applications/ansel.desktop
 fi

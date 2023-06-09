@@ -35,11 +35,6 @@ set(MODULES ${MODULES} menu)
 set(MODULES ${MODULES} menubuttons)
 set(MODULES ${MODULES} masktoolbar)
 
-
-if(BUILD_BATTERY_INDICATOR)
-  set(MODULES ${MODULES} battery_indicator)
-endif()
-
 # modules
 add_library(import MODULE "import.c")
 add_library(export MODULE "export.c" "export_metadata.c")
@@ -89,18 +84,6 @@ if(PORTMIDI_INCLUDE_DIR)
   target_link_libraries (midi ${PORTMIDI_LIBRARY})
 endif()
 
-find_package(SDL2)
-if(SDL2_INCLUDE_DIRS)
-  add_definitions("-DHAVE_SDL")
-  include_directories(${SDL2_INCLUDE_DIRS})
-  set(MODULES ${MODULES} gamepad)
-  add_library(gamepad MODULE "tools/gamepad.c")
-  target_link_libraries(gamepad ${SDL2_LIBRARIES})
-endif()
-
-if(BUILD_BATTERY_INDICATOR)
-  add_library(battery_indicator MODULE "tools/battery_indicator.c")
-endif()
 
 # the modules specific to map mode
 if(USE_MAP)

@@ -142,7 +142,7 @@ const char **views(dt_lib_module_t *self)
 
 uint32_t container(dt_lib_module_t *self)
 {
-  return DT_UI_CONTAINER_PANEL_CENTER_TOP_CENTER;
+  return DT_UI_CONTAINER_PANEL_TOP_SECOND_ROW;
 }
 
 int expandable(dt_lib_module_t *self)
@@ -410,12 +410,12 @@ void gui_init(dt_lib_module_t *self)
   gtk_widget_set_halign(self->widget, GTK_ALIGN_START);
   gtk_widget_set_valign(self->widget, GTK_ALIGN_CENTER);
 
-  GtkWidget *label = gtk_label_new(C_("quickfilter", "View"));
-  gtk_box_pack_start(GTK_BOX(self->widget), label, TRUE, TRUE, 0);
+  GtkWidget *label = gtk_label_new(C_("quickfilter", "Filter"));
+  gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(label), TRUE, TRUE, 0);
   dt_gui_add_class(label, "quickfilter-label");
 
   GtkWidget *hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-  gtk_box_pack_start(GTK_BOX(self->widget), hbox, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(hbox), TRUE, TRUE, 0);
 
   DT_BAUHAUS_COMBOBOX_NEW_FULL(d->comparator, self, NULL, N_("comparator"),
                                _("filter by images rating"),
@@ -428,7 +428,7 @@ void gui_init(dt_lib_module_t *self)
                                ">", // DT_COLLECTION_RATING_COMP_GT,
                                "≠");// DT_COLLECTION_RATING_COMP_NE,
   dt_bauhaus_widget_set_label(d->comparator, NULL, NULL);
-  gtk_box_pack_start(GTK_BOX(hbox), d->comparator, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(hbox), GTK_WIDGET(d->comparator), TRUE, TRUE, 0);
 
   /* create the filter combobox */
   DT_BAUHAUS_COMBOBOX_NEW_FULL(d->stars, self, NULL, N_("ratings"),
@@ -445,7 +445,7 @@ void gui_init(dt_lib_module_t *self)
                                N_("rejected only"),
                                N_("all except rejected"));
   dt_bauhaus_widget_set_label(d->stars, NULL, NULL);
-  gtk_box_pack_start(GTK_BOX(hbox), d->stars, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(hbox), GTK_WIDGET(d->stars), FALSE, FALSE, 0);
   dt_gui_add_class(hbox, "quick_filter_box");
 
   // colorlabels filter
@@ -455,34 +455,34 @@ void gui_init(dt_lib_module_t *self)
     d->colors[k] = dtgtk_button_new(dtgtk_cairo_paint_label_sel, k, NULL);
     dt_gui_add_class(d->colors[k], "dt_no_hover");
     g_object_set_data(G_OBJECT(d->colors[k]), "colors_index", GINT_TO_POINTER(k));
-    gtk_box_pack_start(GTK_BOX(hbox), d->colors[k], FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(hbox), GTK_WIDGET(d->colors[k]), FALSE, FALSE, 0);
     gtk_widget_set_tooltip_text(d->colors[k], _("filter by images color label"
                                                 "\nclick to toggle the color label selection"
                                                 "\nctrl+click to exclude the color label"
                                                 "\nthe gray button affects all color labels"));
     g_signal_connect(G_OBJECT(d->colors[k]), "button-press-event", G_CALLBACK(_colorlabel_clicked), self);
   }
-  gtk_box_pack_start(GTK_BOX(self->widget), hbox, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(hbox), FALSE, FALSE, 0);
   gtk_widget_set_name(hbox, "lib-label-colors");
   dt_gui_add_class(hbox, "quick_filter_box");
   _update_colors_filter(self);
 
     // Culling mode
   hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-  gtk_box_pack_start(GTK_BOX(self->widget), hbox, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(hbox), TRUE, TRUE, 0);
   d->culling = gtk_toggle_button_new_with_label(_("Selected"));
   gtk_widget_set_tooltip_text(d->culling, _("Restrict the current view to only selected pictures"));
   g_signal_connect(G_OBJECT(d->culling), "toggled", G_CALLBACK(_culling_mode), (gpointer)self);
-  gtk_box_pack_start(GTK_BOX(GTK_BOX(hbox)), d->culling, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(hbox), GTK_WIDGET(d->culling), FALSE, FALSE, 0);
   gtk_widget_set_name(d->culling, "quickfilter-culling");
   dt_gui_add_class(hbox, "quick_filter_box");
 
   /* sort combobox */
   hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-  gtk_box_pack_start(GTK_BOX(self->widget), hbox, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(hbox), TRUE, TRUE, 0);
 
-  label = gtk_label_new(C_("quickfilter", "Sort"));
-  gtk_box_pack_start(GTK_BOX(hbox), label, TRUE, TRUE, 0);
+  label = gtk_label_new(C_("quickfilter", "Sort by"));
+  gtk_box_pack_start(GTK_BOX(hbox), GTK_WIDGET(label), TRUE, TRUE, 0);
   dt_gui_add_class(label, "quickfilter-label");
 
   const dt_collection_sort_t sort = dt_collection_get_sort_field(darktable.collection);
@@ -491,7 +491,7 @@ void gui_init(dt_lib_module_t *self)
                                          _filter_get_items(sort), _lib_filter_sort_combobox_changed, self,
                                          _sort_names);
   dt_bauhaus_widget_set_label(d->sort, NULL, NULL);
-  gtk_box_pack_start(GTK_BOX(hbox), d->sort, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(hbox), GTK_WIDGET(d->sort), FALSE, FALSE, 0);
   dt_gui_add_class(hbox, "quick_filter_box");
 
   /* reverse order checkbutton */
@@ -499,7 +499,7 @@ void gui_init(dt_lib_module_t *self)
   if(darktable.collection->params.descending)
     dtgtk_togglebutton_set_paint(DTGTK_TOGGLEBUTTON(d->reverse), dtgtk_cairo_paint_sortby,
                                  CPF_DIRECTION_DOWN, NULL);
-  gtk_box_pack_start(GTK_BOX(hbox), d->reverse, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(hbox), GTK_WIDGET(d->reverse), FALSE, FALSE, 0);
   dt_gui_add_class(d->reverse, "dt_ignore_fg_state");
 
   /* select the last value and connect callback */
@@ -510,13 +510,14 @@ void gui_init(dt_lib_module_t *self)
 
   // text filter
   hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-  gtk_box_pack_start(GTK_BOX(self->widget), hbox, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(hbox), TRUE, TRUE, 0);
 
   label = gtk_label_new(C_("quickfilter", "Find"));
-  gtk_box_pack_start(GTK_BOX(hbox), label, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(hbox), GTK_WIDGET(label), TRUE, TRUE, 0);
   dt_gui_add_class(label, "quickfilter-label");
 
   d->text = gtk_search_entry_new();
+  dt_gui_add_class(GTK_WIDGET(d->text), "menu-text-entry");
   char *text = _decode_text_filter(dt_collection_get_text_filter(darktable.collection));
   gtk_entry_set_text(GTK_ENTRY(d->text), text);
   gtk_entry_set_placeholder_text(GTK_ENTRY(d->text), _("Search an image…"));
@@ -536,10 +537,9 @@ void gui_init(dt_lib_module_t *self)
           /* xgettext:no-c-format */
                                 "\nis dimmed during the search execution"));
   //dt_gui_add_class(d->text, "dt_transparent_background");
-  gtk_box_pack_end(GTK_BOX(hbox), d->text, TRUE, TRUE, 0);
+  gtk_box_pack_end(GTK_BOX(hbox), GTK_WIDGET(d->text), TRUE, TRUE, 0);
   gtk_widget_set_name(hbox, "quickfilter-search-box");
   dt_gui_add_class(hbox, "quick_filter_box");
-
   dt_action_register(DT_ACTION(self), N_("search images"), _focus_filter_search, GDK_KEY_f, GDK_CONTROL_MASK);
 
   /* initialize proxy */

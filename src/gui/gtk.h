@@ -21,7 +21,7 @@
 #include "common/darktable.h"
 #include "common/dtpthread.h"
 #include "dtgtk/thumbtable.h"
-
+#include "gui/window_manager.h"
 
 #include <gtk/gtk.h>
 #include <stdint.h>
@@ -130,7 +130,6 @@ typedef struct dt_gui_gtk_t
   gboolean show_overlays;
   gboolean show_focus_peaking;
   double overlay_red, overlay_blue, overlay_green, overlay_contrast;
-  GtkWidget *focus_peaking_button;
 
   double dpi, dpi_factor, ppd, ppd_thb;
 
@@ -247,112 +246,6 @@ gboolean dt_gui_get_scroll_delta(const GdkEventScroll *event, gdouble *delta);
  * scroll events. */
 gboolean dt_gui_get_scroll_unit_delta(const GdkEventScroll *event, int *delta);
 
-/*
- * new ui api
- */
-
-
-typedef enum dt_ui_container_t
-{
-  /* the top container of left panel, the top container
-     disables the module expander and does not scroll with other modules
-  */
-  DT_UI_CONTAINER_PANEL_LEFT_TOP = 0,
-
-  /* the center container of left panel, the center container
-     contains the scrollable area that all plugins are placed within and last
-     widget is the end marker.
-     This container will always expand|fill empty vertical space
-  */
-  DT_UI_CONTAINER_PANEL_LEFT_CENTER = 1,
-
-  /* the bottom container of left panel, this container works just like
-     the top container but will be attached to bottom in the panel, such as
-     plugins like background jobs module in lighttable and the plugin selection
-     module in darkroom,
-  */
-  DT_UI_CONTAINER_PANEL_LEFT_BOTTOM = 2,
-
-  DT_UI_CONTAINER_PANEL_RIGHT_TOP = 3,
-  DT_UI_CONTAINER_PANEL_RIGHT_CENTER = 4,
-  DT_UI_CONTAINER_PANEL_RIGHT_BOTTOM = 5,
-
-
-  /* the top header bar, left slot where darktable name is placed */
-  DT_UI_CONTAINER_PANEL_TOP_LEFT = 6,
-  /* center which is expanded as wide it can */
-  DT_UI_CONTAINER_PANEL_TOP_CENTER = 7,
-  /* right side were the different views are accessed */
-  DT_UI_CONTAINER_PANEL_TOP_RIGHT = 8,
-
-  DT_UI_CONTAINER_PANEL_CENTER_TOP_LEFT = 9,
-  DT_UI_CONTAINER_PANEL_CENTER_TOP_CENTER = 10,
-  DT_UI_CONTAINER_PANEL_CENTER_TOP_RIGHT = 11,
-
-  DT_UI_CONTAINER_PANEL_CENTER_BOTTOM_LEFT = 12,
-  DT_UI_CONTAINER_PANEL_CENTER_BOTTOM_CENTER = 13,
-  DT_UI_CONTAINER_PANEL_CENTER_BOTTOM_RIGHT = 14,
-
-  /* this panel is placed at bottom of ui
-     only used by the filmstrip if shown */
-  DT_UI_CONTAINER_PANEL_BOTTOM = 15,
-
-  /* Count of containers */
-  DT_UI_CONTAINER_SIZE
-} dt_ui_container_t;
-
-typedef enum dt_ui_panel_t
-{
-  /* the header panel */
-  DT_UI_PANEL_TOP,
-  /* center top toolbar panel */
-  DT_UI_PANEL_CENTER_TOP,
-  /* center bottom toolbar panel */
-  DT_UI_PANEL_CENTER_BOTTOM,
-  /* left panel */
-  DT_UI_PANEL_LEFT,
-  /* right panel */
-  DT_UI_PANEL_RIGHT,
-  /* bottom panel */
-  DT_UI_PANEL_BOTTOM,
-
-  DT_UI_PANEL_SIZE
-} dt_ui_panel_t;
-
-typedef enum dt_ui_border_t
-{
-  DT_UI_BORDER_TOP,
-  DT_UI_BORDER_BOTTOM,
-  DT_UI_BORDER_LEFT,
-  DT_UI_BORDER_RIGHT,
-
-  DT_UI_BORDER_SIZE
-} dt_ui_border_t;
-
-typedef struct dt_ui_t
-{
-  /* container widgets */
-  GtkWidget *containers[DT_UI_CONTAINER_SIZE];
-
-  /* panel widgets */
-  GtkWidget *panels[DT_UI_PANEL_SIZE];
-
-  /* center widget */
-  GtkWidget *center;
-  GtkWidget *center_base;
-
-  /* main widget */
-  GtkWidget *main_window;
-
-  /* thumb table */
-  dt_thumbtable_t *thumbtable;
-
-  /* log msg and toast labels */
-  GtkWidget *log_msg, *toast_msg;
-} dt_ui_t;
-
-/** \brief add's a widget to a defined container */
-void dt_ui_container_add_widget(struct dt_ui_t *ui, const dt_ui_container_t c, GtkWidget *w);
 /** \brief gives a widget focus in the container */
 void dt_ui_container_focus_widget(struct dt_ui_t *ui, const dt_ui_container_t c, GtkWidget *w);
 /** \brief calls a callback on all children widgets from container */

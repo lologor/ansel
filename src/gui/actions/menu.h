@@ -69,7 +69,7 @@ static dt_menu_entry_t * set_menu_entry(GList **items_list, const gchar *label, 
   if(data)
     g_object_set_data(G_OBJECT(entry->widget), "custom-data", data);
 
-  gtk_widget_show_all(entry->widget);
+  gtk_widget_show_all(GTK_WIDGET(entry->widget));
 
   entry->menu = menu_index;
   entry->action_callback = action_callback;

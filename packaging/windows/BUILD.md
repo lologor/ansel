@@ -25,9 +25,9 @@ How to make an Ansel Windows installer (x64 only):
     ```bash
     $ pacman -S --needed mingw-w64-x86_64-gmic
     ```
-    for NG input with midi or gamepad devices
+    for NG input with midi devices
     ```bash
-    $ pacman -S --needed mingw-w64-x86_64-{portmidi,SDL2}
+    $ pacman -S --needed mingw-w64-x86_64-portmidi
     ```
 
 * Install optional libraries required for [testing](../../src/tests/unittests/README.md):

@@ -86,7 +86,7 @@ void gui_init(dt_lib_module_t *self)
     dt_gui_add_class(d->buttons[k], "dt_no_hover");
     dt_gui_add_class(d->buttons[k], "dt_dimmed");
     gtk_widget_set_tooltip_text(button, _("toggle color label of selected images"));
-    gtk_box_pack_start(GTK_BOX(self->widget), button, TRUE, TRUE, 0);
+    gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(button), TRUE, TRUE, 0);
     g_signal_connect(G_OBJECT(button), "clicked", G_CALLBACK(_lib_colorlabels_button_clicked_callback),
                      GINT_TO_POINTER(k));
     g_signal_connect(G_OBJECT(button), "enter-notify-event", G_CALLBACK(_lib_colorlabels_enter_notify_callback),
@@ -122,4 +122,3 @@ static void _lib_colorlabels_button_clicked_callback(GtkWidget *w, gpointer user
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
 // clang-format on
-

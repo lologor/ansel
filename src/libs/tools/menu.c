@@ -40,7 +40,7 @@ const char **views(dt_lib_module_t *self)
 
 uint32_t container(dt_lib_module_t *self)
 {
-  return DT_UI_CONTAINER_PANEL_TOP_LEFT;
+  return DT_UI_CONTAINER_PANEL_TOP_FIRST_ROW;
 }
 
 int expandable(dt_lib_module_t *self)
@@ -50,7 +50,7 @@ int expandable(dt_lib_module_t *self)
 
 int position()
 {
-  return 1;
+  return 2;
 }
 
 void gui_init(dt_lib_module_t *self)
@@ -59,7 +59,8 @@ void gui_init(dt_lib_module_t *self)
   self->data = (void *)d;
 
   /* Init container widget */
-  self->widget = gtk_box_new(FALSE, 0);
+  self->widget = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  gtk_widget_set_halign(GTK_WIDGET(self->widget), GTK_ALIGN_START);
   d->menu_bar = gtk_menu_bar_new();
   gtk_widget_set_name(d->menu_bar, "menu-bar");
 
@@ -71,7 +72,7 @@ void gui_init(dt_lib_module_t *self)
     add_top_menu_entry(d->menu_bar, d->menus, &d->item_lists[i], i, labels[i]);
   }
 
-  gtk_box_pack_start(GTK_BOX(self->widget), d->menu_bar, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(d->menu_bar), FALSE, FALSE, 0);
 
   /* Populate file menu */
   append_file(d->menus, &d->item_lists[DT_MENU_FILE], DT_MENU_FILE);

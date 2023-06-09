@@ -85,7 +85,6 @@ jobs:
             sqlite3:p
             zlib:p
             gmic:p
-            SDL2:p
           update: true
       - uses: actions/checkout@v3
         with:

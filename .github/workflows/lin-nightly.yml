@@ -89,7 +89,6 @@ jobs:
             libpugixml-dev \
             librsvg2-dev \
             libsaxon-java \
-            libsdl2-dev \
             libsecret-1-dev \
             libsoup2.4-dev \
             libsqlite3-dev \
@@ -172,4 +171,4 @@ jobs:
           tag: v0.0.0
           rm: false
           token: ${{ secrets.GITHUB_TOKEN }}
-          files: Ansel-*.AppImage
+          files: Ansel-*.AppImage*

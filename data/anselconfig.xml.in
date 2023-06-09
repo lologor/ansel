@@ -179,7 +179,7 @@
   <dtconfig>
     <name>max_panel_width</name>
     <type>int</type>
-    <default>800</default>
+    <default>1200</default>
     <shortdescription>maximum width of the side panels in pixels</shortdescription>
     <longdescription>(needs a restart)</longdescription>
   </dtconfig>
