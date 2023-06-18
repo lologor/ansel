@@ -22,6 +22,7 @@ BUILD_DIR="$BUILD_DIR_DEFAULT"
 BUILD_GENERATOR_DEFAULT="Ninja"
 BUILD_GENERATOR="$BUILD_GENERATOR_DEFAULT"
 BUILD_PACKAGE=0
+GIT_UPDATE=0
 MAKE_TASKS=-1
 ADDRESS_SANITIZER=0
 DO_CLEAN_BUILD=0
@@ -35,7 +36,7 @@ SUDO=""
 
 PRINT_HELP=0
 
-FEATURES="CAMERA COLORD GRAPHICSMAGICK IMAGEMAGICK KWALLET LIBSECRET LUA MAP MAC_INTEGRATION NLS OPENCL OPENEXR OPENMP WEBP"
+FEATURES="COLORD GRAPHICSMAGICK IMAGEMAGICK KWALLET LIBSECRET LUA MAP MAC_INTEGRATION NLS OPENCL OPENEXR OPENMP WEBP"
 
 # prepare a lowercase version with a space before and after
 # it's very important for parse_feature, has no impact in for loop expansions
@@ -91,10 +92,6 @@ parse_args()
 			BUILD_GENERATOR="$2"
 			shift
 			;;
-		--build-package)
-			BUILD_PACKAGE=1
-			shift
-			;;
 		-j|--jobs)
 			MAKE_TASKS=$(printf "%d" "$2" >/dev/null 2>&1 && printf "$2" || printf "$MAKE_TASKS")
 			shift
@@ -121,6 +118,12 @@ parse_args()
 			;;
 		--sudo)
 			SUDO="sudo "
+			;;
+		--build-package)
+			BUILD_PACKAGE=1
+			;;
+		--update)
+			GIT_UPDATE=1
 			;;
 		-h|--help)
 			PRINT_HELP=1
@@ -154,8 +157,9 @@ Build:
    --build-type     <string>  Build type (Release, Debug, RelWithDebInfo)
                               (default: $BUILD_TYPE_DEFAULT)
    --build-generator <string> Build tool
-                              (default: Unix Makefiles)
-	 --build-package            Build a binary package with only generic optimizations.
+                              (default: Ninja)
+	 --build-package            Build a binary package with only generic optimizations, for portability.
+															(default: disabled)
 
 -j --jobs <integer>           Number of tasks
                               (default: number of CPUs)
@@ -175,6 +179,13 @@ Cleanup actions:
    --clean-all                Clean both build and install directories
 -f --force                    Force clean-build to perform removal
                               ignoring any errors
+
+Update actions:
+   --update                   Run `git pull` to update the source code and submodules
+	                            from the project master branch.
+	                            Git needs to be installed on the computer.
+															(default: disabled)
+
 
 Features:
 By default cmake will enable the features it autodetects on the build machine.
@@ -317,6 +328,15 @@ done
 CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH:-}
 CMAKE_MORE_OPTIONS="${CMAKE_MORE_OPTIONS} ${CMAKE_PREFIX_PATH}"
 
+# ---------------------------------------------------------------------------
+# Update source code and submodules
+# ---------------------------------------------------------------------------
+
+if [ $GIT_UPDATE -eq 1 ] ;
+then
+	git pull --recurse-submodules
+fi
+
 
 # ---------------------------------------------------------------------------
 # Determine CPU architecture
@@ -335,7 +355,7 @@ fi
 # Generic package or customized build ?
 # ---------------------------------------------------------------------------
 
-if [[ $BUILD_PACKAGE == 1 ]]
+if [ $BUILD_PACKAGE -eq 1 ] ;
 then
 	CMAKE_MORE_OPTIONS="${CMAKE_MORE_OPTIONS} -DBINARY_PACKAGE_BUILD=ON"
 else
@@ -462,3 +482,6 @@ if [ $DO_INSTALL ] ; then
 
 	$SUDO ln -s $INSTALL_PREFIX/share/applications/photos.ansel.app.desktop /usr/share/applications/ansel.desktop
 fi
+
+# update Lensfun
+$SUDO lensfun-update-data

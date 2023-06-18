@@ -457,8 +457,8 @@ void append_display(GtkWidget **menus, GList **lists, const dt_menus_t index)
 
   add_sub_menu_entry(menus, lists, _("Full screen"), index, NULL, full_screen_callback,
                      full_screen_checked_callback, NULL, NULL);
-
-  dt_action_register(&darktable.control->actions_global, N_("Fullscreen window"), full_screen_callback, GDK_KEY_F11, 0);
+  ac = dt_action_define(pnl, NULL, N_("Full screen"), get_last_widget(lists), NULL);
+  dt_action_register(ac, NULL, full_screen_callback, GDK_KEY_F11, 0);
 
 
   // specific top/bottom toggles

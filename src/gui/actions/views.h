@@ -42,13 +42,24 @@ void view_switch_callback(GtkWidget *menu_item)
 
 void append_views(GtkWidget **menus, GList **lists, const dt_menus_t index)
 {
+  dt_action_t *pnl = dt_action_section(&darktable.control->actions_global, N_("Ateliers"));
+  dt_action_t *ac;
+
   for(GList *view_iter = darktable.view_manager->views; view_iter; view_iter = g_list_next(view_iter))
   {
     dt_view_t *view = (dt_view_t *)view_iter->data;
     if(view->flags() & VIEW_FLAGS_HIDDEN) continue;
     add_sub_menu_entry(menus, lists, view->name(view), index,
                        NULL, view_switch_callback, NULL, views_active_callback, views_sensitive_callback);
-    dt_action_define(&darktable.control->actions_global, _("Switch views"), view->module_name, get_last_widget(lists), NULL);
+    ac = dt_action_define(pnl, NULL, g_strdup(view->name(view)), get_last_widget(lists), NULL);
+
+    // Hack the action BS because it's BS
+    ac->type = DT_ACTION_TYPE_COMMAND;
+
+    if(!g_strcmp0(view->name(view), "Lighttable"))
+      dt_shortcut_register(ac, 0, 0, GDK_KEY_Escape, 0);
+    else
+      dt_shortcut_register(ac, 0, 0, 0, 0);
   }
 }
 

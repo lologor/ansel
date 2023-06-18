@@ -313,18 +313,6 @@
     <shortdescription>do not set the 'uncategorized' entry for tags</shortdescription>
     <longdescription>do not set the 'uncategorized' entry for tags which do not have children</longdescription>
   </dtconfig>
-  <dtconfig dialog="collect">
-    <name>plugins/lighttable/tagging/case_sensitivity</name>
-    <type>
-      <enum>
-        <option>sensitive</option>
-        <option>insensitive</option>
-      </enum>
-    </type>
-    <default>insensitive</default>
-    <shortdescription>tags case sensitivity</shortdescription>
-    <longdescription>tags case sensitivity. without the Sqlite ICU extension, insensivity works only for the 26 latin letters</longdescription>
-  </dtconfig>
   <dtconfig prefs="processing" section="cpugpu" capability="opencl">
     <name>opencl</name>
     <type>bool</type>

@@ -415,11 +415,6 @@ void dt_gui_store_last_preset(const char *name)
   darktable.gui->last_preset = g_strdup(name);
 }
 
-static void _gui_switch_view_key_accel_callback(dt_action_t *action)
-{
-  dt_ctl_switch_mode_to(action->id);
-}
-
 #ifdef MAC_INTEGRATION
 #ifdef GTK_TYPE_OSX_APPLICATION
 static gboolean _osx_quit_callback(GtkOSXApplication *OSXapp, gpointer user_data)
@@ -687,8 +682,6 @@ int dt_gui_gtk_init(dt_gui_gtk_t *gui)
   g_signal_connect(G_OBJECT(widget), "button-press-event", G_CALLBACK(_scrollbar_press_event), NULL);
   g_signal_connect(G_OBJECT(widget), "button-release-event", G_CALLBACK(_scrollbar_release_event), NULL);
 
-  dt_action_t *ac;
-
   dt_gui_presets_init();
 
   widget = dt_ui_center(darktable.gui->ui);
@@ -722,28 +715,10 @@ int dt_gui_gtk_init(dt_gui_gtk_t *gui)
   //       4. Find out where Diederik Ter Rahe lives and ensure he never writes another line of code.
   // g_signal_override_class_handler("query-tooltip", gtk_widget_get_type(), G_CALLBACK(dt_shortcut_tooltip_callback));
 
-  ac = dt_action_section(&darktable.control->actions_global, N_("switch views"));
-  dt_action_register(ac, N_("tethering"), _gui_switch_view_key_accel_callback, 0, 0);
-  dt_action_register(ac, N_("lighttable"), _gui_switch_view_key_accel_callback, GDK_KEY_Escape, 0);
-  dt_action_register(ac, N_("darkroom"), _gui_switch_view_key_accel_callback, 0, 0);
-  dt_action_register(ac, N_("map"), _gui_switch_view_key_accel_callback, 0, 0);
-  dt_action_register(ac, N_("slideshow"), _gui_switch_view_key_accel_callback, 0, 0);
-  dt_action_register(ac, N_("print"), _gui_switch_view_key_accel_callback, 0, 0);
-
   // register actions for applying styles via shortcuts
   dt_init_styles_actions();
 
-  dt_action_register(&darktable.control->actions_global, N_("reinitialise input devices"), dt_shortcuts_reinitialise, GDK_KEY_I, GDK_CONTROL_MASK | GDK_SHIFT_MASK | GDK_MOD1_MASK);
-
-  // Register global rating shortcut, with regular numbers
-  ac = dt_action_define(&darktable.control->actions_thumb, NULL, N_("rating"), NULL, &dt_action_def_rating);
-  dt_shortcut_register(ac, 0, 0, GDK_KEY_0, 0);
-  dt_shortcut_register(ac, 1, 0, GDK_KEY_1, 0);
-  dt_shortcut_register(ac, 2, 0, GDK_KEY_2, 0);
-  dt_shortcut_register(ac, 3, 0, GDK_KEY_3, 0);
-  dt_shortcut_register(ac, 4, 0, GDK_KEY_4, 0);
-  dt_shortcut_register(ac, 5, 0, GDK_KEY_5, 0);
-  dt_shortcut_register(ac, 6, 0, GDK_KEY_r, 0);
+  dt_action_register(&darktable.control->actions_global, N_("Reinitialise input devices"), dt_shortcuts_reinitialise, GDK_KEY_I, GDK_CONTROL_MASK | GDK_SHIFT_MASK | GDK_MOD1_MASK);
 
   darktable.gui->reset = 0;
 

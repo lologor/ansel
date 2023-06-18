@@ -16,6 +16,8 @@ typedef enum dt_menus_t
   DT_MENU_FILE = 0,
   DT_MENU_EDIT,
   DT_MENU_SELECTION,
+  DT_MENU_IMAGE,
+  DT_MENU_STYLES,
   DT_MENU_RUN,
   DT_MENU_DISPLAY,
   DT_MENU_ATELIERS,
@@ -61,9 +63,13 @@ static dt_menu_entry_t * set_menu_entry(GList **items_list, const gchar *label, 
 
   // Main widget
   if(checked_callback)
-    entry->widget = gtk_check_menu_item_new_with_label(label);
+    entry->widget = gtk_check_menu_item_new_with_label("");
   else
-    entry->widget = gtk_menu_item_new_with_label(label);
+    entry->widget = gtk_menu_item_new_with_label("");
+
+  // Set the text label allowing markup
+  GtkWidget *child = gtk_bin_get_child(GTK_BIN(entry->widget));
+  gtk_label_set_markup(GTK_LABEL(child), label);
 
   // Store arbitrary data in the GtkWidget if needed
   if(data)
@@ -198,6 +204,12 @@ void add_menu_separator(GtkWidget *menu)
 {
   GtkWidget *sep = gtk_separator_menu_item_new();
   gtk_menu_shell_append(GTK_MENU_SHELL(menu), sep);
+}
+
+void add_sub_menu_separator(GtkWidget *parent)
+{
+  GtkWidget *sep = gtk_separator_menu_item_new();
+  gtk_menu_shell_append(GTK_MENU_SHELL(gtk_menu_item_get_submenu(GTK_MENU_ITEM(parent))), sep);
 }
 
 const char * get_label_text(GtkWidget *widget)

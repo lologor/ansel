@@ -89,26 +89,6 @@ static gboolean _lib_duplicate_caption_out_callback(GtkWidget *widget, GdkEvent 
   return FALSE;
 }
 
-static void _lib_duplicate_new_clicked_callback(GtkWidget *widget, GdkEventButton *event, dt_lib_module_t *self)
-{
-  const int imgid = darktable.develop->image_storage.id;
-  const int newid = dt_image_duplicate(imgid);
-  if (newid <= 0) return;
-  dt_history_delete_on_image(newid);
-  DT_DEBUG_CONTROL_SIGNAL_RAISE(darktable.signals, DT_SIGNAL_TAG_CHANGED);
-  dt_collection_update_query(darktable.collection, DT_COLLECTION_CHANGE_RELOAD, DT_COLLECTION_PROP_UNDEF, NULL);
-  DT_DEBUG_CONTROL_SIGNAL_RAISE(darktable.signals, DT_SIGNAL_VIEWMANAGER_THUMBTABLE_ACTIVATE, newid);
-}
-static void _lib_duplicate_duplicate_clicked_callback(GtkWidget *widget, GdkEventButton *event, dt_lib_module_t *self)
-{
-  const int imgid = darktable.develop->image_storage.id;
-  const int newid = dt_image_duplicate(imgid);
-  if (newid <= 0) return;
-  dt_history_copy_and_paste_on_image(imgid, newid, FALSE, NULL, TRUE, TRUE);
-  dt_collection_update_query(darktable.collection, DT_COLLECTION_CHANGE_RELOAD, DT_COLLECTION_PROP_UNDEF, NULL);
-  DT_DEBUG_CONTROL_SIGNAL_RAISE(darktable.signals, DT_SIGNAL_VIEWMANAGER_THUMBTABLE_ACTIVATE, newid);
-}
-
 static void _lib_duplicate_delete(GtkButton *button, dt_lib_module_t *self)
 {
   dt_lib_duplicate_t *d = (dt_lib_duplicate_t *)self->data;
@@ -535,12 +515,6 @@ void gui_init(dt_lib_module_t *self)
   d->duplicate_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 
   GtkWidget *hb = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-  GtkWidget *bt = dt_action_button_new(NULL, N_("original"), _lib_duplicate_new_clicked_callback, self,
-                            _("create a 'virgin' duplicate of the image without any development"), 0, 0);
-  gtk_box_pack_end(GTK_BOX(hb), bt, TRUE, TRUE, 0);
-  bt = dt_action_button_new(NULL, N_("duplicate"), _lib_duplicate_duplicate_clicked_callback, self,
-                            _("create a duplicate of the image with same history stack"), 0, 0);
-  gtk_box_pack_end(GTK_BOX(hb), bt, TRUE, TRUE, 0);
 
   /* add duplicate list and buttonbox to widget */
   gtk_box_pack_start(GTK_BOX(self->widget),

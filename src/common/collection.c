@@ -1786,38 +1786,12 @@ static gchar *get_query_string(const dt_collection_properties_t property, const 
 
     case DT_COLLECTION_PROP_TAG: // tag
     {
-      const gboolean is_insensitive =
-        dt_conf_is_equal("plugins/lighttable/tagging/case_sensitivity", "insensitive");
-
       if(!strcmp(escaped_text, _("not tagged")))
       {
         // clang-format off
         query = g_strdup_printf("(id NOT IN (SELECT DISTINCT imgid FROM main.tagged_images "
                                             "WHERE tagid NOT IN memory.darktable_tags))");
         // clang-format on
-      }
-      else if(is_insensitive)
-      {
-        if ((escaped_length > 0) && (escaped_text[escaped_length-1] == '*'))
-        {
-          // shift-click adds an asterix * to include items in and under this hierarchy
-          // without using a wildcard % which also would include similar named items
-          escaped_text[escaped_length-1] = '\0';
-          // clang-format off
-          query = g_strdup_printf("(id IN (SELECT imgid FROM main.tagged_images WHERE tagid IN "
-                                         "(SELECT id FROM data.tags WHERE name LIKE '%s' OR name LIKE '%s|%%')))",
-                                  escaped_text, escaped_text);
-          // clang-format on
-        }
-        else
-        {
-          // default
-          // clang-format off
-          query = g_strdup_printf("(id IN (SELECT imgid FROM main.tagged_images WHERE tagid IN "
-                                       "(SELECT id FROM data.tags WHERE name LIKE '%s')))",
-                                  escaped_text);
-          // clang-format on
-        }
       }
       else
       {
@@ -1829,8 +1803,8 @@ static gchar *get_query_string(const dt_collection_properties_t property, const 
           // clang-format off
           query = g_strdup_printf("(id IN (SELECT imgid FROM main.tagged_images WHERE tagid IN "
                                          "(SELECT id FROM data.tags "
-                                         "WHERE name = '%s'"
-                                         "  OR SUBSTR(name, 1, LENGTH('%s') + 1) = '%s|')))",
+                                         "WHERE LOWER(name) = LOWER('%s')"
+                                         "  OR SUBSTR(LOWER(name), 1, LENGTH('%s') + 1) = LOWER('%s|'))))",
                                   escaped_text, escaped_text, escaped_text);
           // clang-format on
         }
@@ -1840,7 +1814,7 @@ static gchar *get_query_string(const dt_collection_properties_t property, const 
           escaped_text[escaped_length-1] = '\0';
           // clang-format off
           query = g_strdup_printf("(id IN (SELECT imgid FROM main.tagged_images WHERE tagid IN "
-                                         "(SELECT id FROM data.tags WHERE SUBSTR(name, 1, LENGTH('%s')) = '%s')))",
+                                         "(SELECT id FROM data.tags WHERE SUBSTR(LOWER(name), 1, LENGTH('%s')) = LOWER('%s'))))",
                                   escaped_text, escaped_text);
           // clang-format on
         }
@@ -1849,7 +1823,7 @@ static gchar *get_query_string(const dt_collection_properties_t property, const 
           // default
           // clang-format off
           query = g_strdup_printf("(id IN (SELECT imgid FROM main.tagged_images WHERE tagid IN "
-                                       "(SELECT id FROM data.tags WHERE name = '%s')))",
+                                       "(SELECT id FROM data.tags WHERE LOWER(name) = LOWER('%s'))))",
                                   escaped_text);
           // clang-format on
         }
@@ -2244,6 +2218,74 @@ void dt_collection_deserialize(const char *buf)
   dt_collection_update_query(darktable.collection, DT_COLLECTION_CHANGE_NEW_QUERY, DT_COLLECTION_PROP_UNDEF, NULL);
 }
 
+/* Store the n most recent collections in config for re-use in menu */
+static void _update_recentcollections()
+{
+  if(darktable.gui == NULL) return;
+  if(darktable.gui->ui == NULL) return;
+
+  // Serialize current request
+  char confname[200] = { 0 };
+  char buf[4096];
+  dt_collection_serialize(buf, sizeof(buf));
+
+  // Store position in lighttable of the current collection
+  dt_thumbtable_t *table = dt_ui_thumbtable(darktable.gui->ui);
+  const int position = table->offset;
+
+  int n = -1;
+  gboolean found_duplicate = FALSE;
+
+  // Check if current request already exist in history
+  int num_items = dt_conf_get_int("plugins/lighttable/recentcollect/num_items");
+  for(int k = 0; k < num_items; k++)
+  {
+    snprintf(confname, sizeof(confname), "plugins/lighttable/recentcollect/line%1d", k);
+    const char *line = dt_conf_get_string_const(confname);
+    if(!line) continue;
+    if(!strcmp(line, buf))
+    {
+      snprintf(confname, sizeof(confname), "plugins/lighttable/recentcollect/pos%1d", k);
+      n = k;
+      found_duplicate = TRUE;
+      break;
+    }
+  }
+
+  // Shift all history items one step behind
+  int shifted_index = num_items;
+  shifted_index -= found_duplicate ? 1 : 0;
+  for(int k = num_items - 1; k > -1; k--)
+  {
+    if(k == n) continue; // this is the duplicate of current collection we found, skip it
+
+    // Get old records
+    snprintf(confname, sizeof(confname), "plugins/lighttable/recentcollect/line%1d", k);
+    const gchar *line1 = dt_conf_get_string_const(confname);
+    snprintf(confname, sizeof(confname), "plugins/lighttable/recentcollect/pos%1d", k);
+    uint32_t pos1 = dt_conf_get_int(confname);
+
+    // Write new records shifted by 1 slot
+    if(line1 && line1[0] != '\0' && shifted_index < NUM_LAST_COLLECTIONS)
+    {
+      snprintf(confname, sizeof(confname), "plugins/lighttable/recentcollect/line%1d", shifted_index);
+      dt_conf_set_string(confname, line1);
+      snprintf(confname, sizeof(confname), "plugins/lighttable/recentcollect/pos%1d", shifted_index);
+      dt_conf_set_int(confname, pos1);
+      shifted_index -= 1;
+    }
+  }
+
+  // Prepend current collection on top of history
+  dt_conf_set_string("plugins/lighttable/recentcollect/line0", buf);
+  dt_conf_set_int("plugins/lighttable/recentcollect/pos0", position);
+
+  // Increment items if we didn't find a duplicate
+  num_items += found_duplicate ? 0 : 1;
+  dt_conf_set_int("plugins/lighttable/recentcollect/num_items", CLAMP(num_items, 1, NUM_LAST_COLLECTIONS));
+}
+
+
 void dt_collection_update_query(const dt_collection_t *collection, dt_collection_change_t query_change,
                                 dt_collection_properties_t changed_property, GList *list)
 {
@@ -2390,6 +2432,10 @@ void dt_collection_update_query(const dt_collection_t *collection, dt_collection
     /* free allocated strings */
     g_free(complete_query);
   }
+
+  /* Update recent collections history before we raise the signal,
+  *  since some signal listeners will need it */
+  _update_recentcollections();
 
   /* raise signal of collection change, only if this is an original */
   if(!collection->clone)

@@ -8,6 +8,7 @@
 #include "gui/actions/views.h"
 #include "gui/actions/file.h"
 #include "gui/actions/edit.h"
+#include "gui/actions/image.h"
 #include "gui/actions/help.h"
 #include "gui/actions/run.h"
 #include "gui/actions/select.h"
@@ -65,7 +66,7 @@ void gui_init(dt_lib_module_t *self)
   gtk_widget_set_name(d->menu_bar, "menu-bar");
 
   /* Init top-level menus */
-  gchar *labels [DT_MENU_LAST] = { _("_File"), _("_Edit"), _("_Selection"), _("_Run"), _("_Display"), _("_Ateliers"), _("_Help") };
+  gchar *labels [DT_MENU_LAST] = { _("_File"), _("_Edit"), _("_Selection"), _("_Image"), _("_Styles"), _("_Run"), _("_Display"), _("_Ateliers"), _("_Help") };
   for(int i = 0; i < DT_MENU_LAST; i++)
   {
     d->item_lists[i] = NULL;
@@ -82,6 +83,9 @@ void gui_init(dt_lib_module_t *self)
 
   /* Populate selection menu */
   append_select(d->menus, &d->item_lists[DT_MENU_SELECTION], DT_MENU_SELECTION);
+
+  /* Populate image menu */
+  append_image(d->menus, &d->item_lists[DT_MENU_IMAGE], DT_MENU_IMAGE);
 
   /* Populate run menu */
   append_run(d->menus, &d->item_lists[DT_MENU_RUN], DT_MENU_RUN);

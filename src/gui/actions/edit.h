@@ -411,14 +411,14 @@ void append_edit(GtkWidget **menus, GList **lists, const dt_menus_t index)
   ac = dt_action_define(pnl, NULL, N_("Paste development (all)"), get_last_widget(lists), NULL);
   dt_action_register(ac, NULL, paste_all_callback, GDK_KEY_v, GDK_CONTROL_MASK);
 
-  add_sub_menu_entry(menus, lists, _("Paste development (parts)"), index, NULL, paste_parts_callback, NULL, NULL,
+  add_sub_menu_entry(menus, lists, _("Paste development (parts)…"), index, NULL, paste_parts_callback, NULL, NULL,
                      paste_sensitive_callback);
   ac = dt_action_define(pnl, NULL, N_("Paste development (parts)"), get_last_widget(lists), NULL);
   dt_action_register(ac, NULL, paste_parts_callback, GDK_KEY_v, GDK_CONTROL_MASK | GDK_SHIFT_MASK);
 
   add_menu_separator(menus[index]);
 
-  add_sub_menu_entry(menus, lists, _("Load development from XMP"), index, NULL,
+  add_sub_menu_entry(menus, lists, _("Load development from XMP…"), index, NULL,
                      load_xmp_callback, NULL, NULL, compress_history_sensitive_callback);
   ac = dt_action_define(pnl, NULL, N_("Load development from XMP"), get_last_widget(lists), NULL);
   dt_action_register(ac, NULL, load_xmp_callback, 0, 0);

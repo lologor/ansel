@@ -1179,7 +1179,6 @@ GtkWidget *dt_thumbnail_create_widget(dt_thumbnail_t *thumb, float zoom_ratio)
     // the reject icon
     thumb->w_reject = dtgtk_thumbnail_btn_new(dtgtk_cairo_paint_reject, 0, NULL);
     dt_gui_add_class(thumb->w_reject, "thumb-reject");
-    dt_action_define(&darktable.control->actions_thumb, NULL, "rating", thumb->w_reject, &dt_action_def_rating);
     gtk_widget_set_valign(thumb->w_reject, GTK_ALIGN_END);
     gtk_widget_set_halign(thumb->w_reject, GTK_ALIGN_START);
     gtk_widget_show(thumb->w_reject);
@@ -1199,7 +1198,6 @@ GtkWidget *dt_thumbnail_create_widget(dt_thumbnail_t *thumb, float zoom_ratio)
       g_signal_connect(G_OBJECT(thumb->w_stars[i]), "button-release-event", G_CALLBACK(_event_rating_release),
                        thumb);
       dt_gui_add_class(thumb->w_stars[i], "thumb-star");
-      dt_action_define(&darktable.control->actions_thumb, NULL, "rating", thumb->w_stars[i], &dt_action_def_rating);
       gtk_widget_set_valign(thumb->w_stars[i], GTK_ALIGN_END);
       gtk_widget_set_halign(thumb->w_stars[i], GTK_ALIGN_START);
       gtk_widget_show(thumb->w_stars[i]);
@@ -1208,7 +1206,6 @@ GtkWidget *dt_thumbnail_create_widget(dt_thumbnail_t *thumb, float zoom_ratio)
 
     // the color labels
     thumb->w_color = dtgtk_thumbnail_btn_new(dtgtk_cairo_paint_label_flower, thumb->colorlabels, NULL);
-    dt_action_define(&darktable.control->actions_thumb, NULL, N_("color label"), thumb->w_color, &dt_action_def_color_label);
     dt_gui_add_class(thumb->w_color, "thumb-colorlabels");
     gtk_widget_set_valign(thumb->w_color, GTK_ALIGN_END);
     gtk_widget_set_halign(thumb->w_color, GTK_ALIGN_END);

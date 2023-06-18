@@ -23,6 +23,8 @@
 #include <inttypes.h>
 #include "common/metadata.h"
 
+#define NUM_LAST_COLLECTIONS 10
+
 typedef enum dt_collection_query_t
 {
   COLLECTION_QUERY_SIMPLE             = 0,      // a query with only select and where statement

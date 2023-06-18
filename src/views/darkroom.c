@@ -2087,7 +2087,7 @@ void gui_init(dt_view_t *self)
     // the gamut check button
     dev->profile.gamut_button = dtgtk_togglebutton_new(dtgtk_cairo_paint_gamut_check, 0, NULL);
     ac = dt_action_define(sa, NULL, N_("gamut check"), dev->profile.gamut_button, &dt_action_def_toggle);
-    dt_shortcut_register(ac, 0, 0, GDK_KEY_g, GDK_CONTROL_MASK);
+    dt_shortcut_register(ac, 0, 0, 0, 0);
     gtk_widget_set_tooltip_text(dev->profile.gamut_button,
                  _("toggle gamut checking\nright click for profile options"));
     g_signal_connect(G_OBJECT(dev->profile.gamut_button), "clicked",
