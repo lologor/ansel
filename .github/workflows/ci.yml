@@ -23,6 +23,7 @@ on:
         - "data/themes/**"
         - "data/watermarks/**"
         - "**.md"
+        - "**.yml"
   pull_request:
     branches:
       - master
