@@ -76,6 +76,9 @@ typedef struct dt_iop_gui_simple_callback_t
   int index;
 } dt_iop_gui_simple_callback_t;
 
+static void _show_module_callback(dt_iop_module_t *module);
+static void _enable_module_callback(dt_iop_module_t *module);
+
 void dt_iop_load_default_params(dt_iop_module_t *module)
 {
   memcpy(module->params, module->default_params, module->params_size);
@@ -1911,7 +1914,7 @@ void dt_iop_gui_set_expanded(dt_iop_module_t *module, gboolean expanded, gboolea
       iop = g_list_next(iop);
     }
     if(all_other_closed)
-      _gui_set_single_expanded(module, !module->expanded);
+      _gui_set_single_expanded(module, expanded);
     else
       _gui_set_single_expanded(module, TRUE);
   }
@@ -3053,7 +3056,8 @@ static const dt_action_element_def_t _action_elements[]
       { NULL } };
 
 static const dt_shortcut_fallback_t _action_fallbacks[]
-  = { { .element = DT_ACTION_ELEMENT_ENABLE, .button = DT_SHORTCUT_LEFT },
+  = { { .element = DT_ACTION_ELEMENT_SHOW, .button = DT_SHORTCUT_LEFT, .click = DT_SHORTCUT_LONG },
+      { .element = DT_ACTION_ELEMENT_ENABLE, .button = DT_SHORTCUT_LEFT },
       { .element = DT_ACTION_ELEMENT_INSTANCE, .button = DT_SHORTCUT_RIGHT, .click = DT_SHORTCUT_DOUBLE },
       { .element = DT_ACTION_ELEMENT_RESET, .button = DT_SHORTCUT_LEFT, .click = DT_SHORTCUT_DOUBLE },
       { .element = DT_ACTION_ELEMENT_PRESETS, .button = DT_SHORTCUT_RIGHT },

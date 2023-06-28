@@ -2082,6 +2082,11 @@ void leave(dt_view_t *self)
   darktable.view_manager->proxy.map.view = NULL;
 }
 
+/* Merged in gui/actions/edit.h without the callback blocks
+*  TODO: investigate how bad it is to fire the callbacks all the time.
+*  FIXME : handle peculiar stuff in the actual callbacks if needed,
+*  while the higher-level callback dispatching is kept standard throughout the app.
+*  Current design is stupid.
 static void _view_map_undo_callback(dt_action_t *action)
 {
   dt_view_t *self = dt_action_view(action);
@@ -2109,12 +2114,7 @@ static void _view_map_redo_callback(dt_action_t *action)
   dt_control_signal_unblock_by_func(darktable.signals, G_CALLBACK(_view_map_geotag_changed), self);
   g_signal_emit_by_name(lib->map, "changed");
 }
-
-void gui_init(dt_view_t *self)
-{
-  dt_action_register(DT_ACTION(self), N_("undo"), _view_map_undo_callback, GDK_KEY_z, GDK_CONTROL_MASK);
-  dt_action_register(DT_ACTION(self), N_("redo"), _view_map_redo_callback, GDK_KEY_y, GDK_CONTROL_MASK);
-}
+*/
 
 static void _view_map_center_on_location(const dt_view_t *view, gdouble lon, gdouble lat, gdouble zoom)
 {

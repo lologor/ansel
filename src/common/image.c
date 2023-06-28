@@ -38,7 +38,9 @@
 #include "control/conf.h"
 #include "control/control.h"
 #include "control/jobs.h"
+#ifdef LIGHTROOM_IMPORT
 #include "develop/lightroom.h"
+#endif
 #include "win/filepath.h"
 #ifdef USE_LUA
 #include "lua/image.h"
@@ -1654,10 +1656,11 @@ static uint32_t _image_import_internal(const int32_t film_id, const char *filena
   // dt_image_path_append_version(id, dtfilename, sizeof(dtfilename));
   g_strlcat(dtfilename, ".xmp", sizeof(dtfilename));
 
-  const int res = dt_exif_xmp_read(img, dtfilename, 0);
-
   // write through to db, but not to xmp.
   dt_image_cache_write_release(darktable.image_cache, img, DT_IMAGE_CACHE_RELAXED);
+
+#ifdef LIGHTROOM_IMPORT
+  const int res = dt_exif_xmp_read(img, dtfilename, 0);
 
   // read all sidecar files
   const int nb_xmp = _image_read_duplicates(id, normalized_filename, raise_signals);
@@ -1670,6 +1673,7 @@ static uint32_t _image_import_internal(const int32_t film_id, const char *filena
     if(lr_xmp)
       dt_image_write_sidecar_file(id);
   }
+#endif
 
   // add a tag with the file extension
   guint tagid = 0;

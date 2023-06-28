@@ -40,6 +40,14 @@ void view_switch_callback(GtkWidget *menu_item)
   }
 }
 
+/* Need to pass-on void function because the shortcut API can't take a widget in input,
+*  and trigger its callback. You know… like a regular Gtk Accel would.
+*/
+void view_switch_to_lighttable()
+{
+  dt_ctl_switch_mode_to("lighttable");
+}
+
 void append_views(GtkWidget **menus, GList **lists, const dt_menus_t index)
 {
   dt_action_t *pnl = dt_action_section(&darktable.control->actions_global, N_("Ateliers"));
@@ -51,15 +59,15 @@ void append_views(GtkWidget **menus, GList **lists, const dt_menus_t index)
     if(view->flags() & VIEW_FLAGS_HIDDEN) continue;
     add_sub_menu_entry(menus, lists, view->name(view), index,
                        NULL, view_switch_callback, NULL, views_active_callback, views_sensitive_callback);
-    ac = dt_action_define(pnl, NULL, g_strdup(view->name(view)), get_last_widget(lists), NULL);
-
-    // Hack the action BS because it's BS
-    ac->type = DT_ACTION_TYPE_COMMAND;
 
     if(!g_strcmp0(view->name(view), "Lighttable"))
-      dt_shortcut_register(ac, 0, 0, GDK_KEY_Escape, 0);
-    else
-      dt_shortcut_register(ac, 0, 0, 0, 0);
+    {
+      ac = dt_action_define(pnl, NULL, g_strdup(view->name(view)), get_last_widget(lists), NULL);
+      dt_action_register(ac, NULL, view_switch_to_lighttable, GDK_KEY_Escape, 0);
+    }
+    // Darkroom is not handled in global menu since it needs to be opened with an image ID,
+    // so we only handle it from filmstrip and lighttable thumbnails.
+    // Map and Print are too niche to bother.
   }
 }
 

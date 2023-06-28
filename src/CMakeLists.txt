@@ -305,12 +305,6 @@ add_definitions("-DGDK_VERSION_MIN_REQUIRED=GDK_VERSION_3_22")
 include_directories(SYSTEM ${GTK3_INCLUDE_DIRS})
 list(APPEND LIBS ${GTK3_LIBRARIES})
 
-# Check for libxml2 / broken cmake module can't be included in the foreach() below
-find_package(LibXml2 2.6 REQUIRED)
-include_directories(SYSTEM ${LIBXML2_INCLUDE_DIR})
-list(APPEND LIBS ${LIBXML2_LIBRARIES})
-add_definitions(${LIBXML2_DEFINITIONS})
-
 # used to launch a tiny http server, which could be used by OAuth services
 find_package(LibSoup2)
 if(LibSoup2_FOUND)
@@ -390,6 +384,17 @@ if(USE_LENSFUN)
     include_directories(SYSTEM ${LensFun_INCLUDE_DIRS})
     list(APPEND LIBS ${LensFun_LIBRARIES})
     add_definitions(${LensFun_DEFINITIONS})
+  endif()
+endif()
+
+if(USE_LIGHTROOM)
+  # Check for libxml2 / broken cmake module can't be included in the foreach() below
+  find_package(LibXml2 2.6 REQUIRED)
+  if(LibXml2_VERSION VERSION_LESS 2.11)
+    include_directories(SYSTEM ${LIBXML2_INCLUDE_DIR})
+    list(APPEND LIBS ${LIBXML2_LIBRARIES})
+    add_definitions(${LIBXML2_DEFINITIONS})
+  # else : can't build lightroom.c
   endif()
 endif()
 

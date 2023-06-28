@@ -154,11 +154,12 @@ static void undo_callback()
     dt_undo_do_undo(darktable.undo, DT_UNDO_LIGHTTABLE);
   else if(!strcmp(cv->module_name, "darkroom"))
     dt_undo_do_undo(darktable.undo, DT_UNDO_DEVELOP);
-  // else if(!strcmp(cv->module_name, "map"))
-  //   dt_undo_do_undo(darktable.undo, DT_UNDO_MAP);
-  // not handled here since it needs to block callbacks declared in view, which may not be loaded.
+  else if(!strcmp(cv->module_name, "map"))
+    dt_undo_do_undo(darktable.undo, DT_UNDO_MAP);
+  // Beware: it needs to block callbacks declared in view, which may not be loaded.
   // Another piece of shitty peculiar design that doesn't comply with the logic of the rest of the soft.
   // That's what you get from ignoring modularity principles.
+  // For now we just ignore the peculiar stuff, no idea how annoying it is, seems it's only GUI candy.
 }
 
 static void redo_callback()
@@ -171,7 +172,8 @@ static void redo_callback()
     dt_undo_do_redo(darktable.undo, DT_UNDO_LIGHTTABLE);
   else if(!strcmp(cv->module_name, "darkroom"))
     dt_undo_do_redo(darktable.undo, DT_UNDO_DEVELOP);
-  // else if(!strcmp(cv->module_name, "map"))
+  else if(!strcmp(cv->module_name, "map"))
+    dt_undo_do_redo(darktable.undo, DT_UNDO_MAP);
   //   see undo_callback()
 }
 
