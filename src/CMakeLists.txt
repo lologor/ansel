@@ -105,7 +105,6 @@ FILE(GLOB SOURCE_FILES
   "develop/imageop.c"
   "develop/imageop_math.c"
   "develop/imageop_gui.c"
-  "develop/lightroom.c"
   "develop/pixelpipe.c"
   "develop/blend.c"
   "develop/blend_gui.c"
@@ -387,14 +386,17 @@ if(USE_LENSFUN)
   endif()
 endif()
 
-if(USE_LIGHTROOM)
-  # Check for libxml2 / broken cmake module can't be included in the foreach() below
-  find_package(LibXml2 2.6 REQUIRED)
+# Check for libxml2 / broken cmake module can't be included in the foreach() below
+find_package(LibXml2 2.6 REQUIRED)
+include_directories(SYSTEM ${LIBXML2_INCLUDE_DIR})
+list(APPEND LIBS ${LIBXML2_LIBRARIES})
+add_definitions(${LIBXML2_DEFINITIONS})
+
+if(USE_LIGHTROOM)  
   if(LibXml2_VERSION VERSION_LESS 2.11)
-    include_directories(SYSTEM ${LIBXML2_INCLUDE_DIR})
-    list(APPEND LIBS ${LIBXML2_LIBRARIES})
-    add_definitions(${LIBXML2_DEFINITIONS})
-  # else : can't build lightroom.c
+    list(APPEND SOURCE_FILES "develop/lightroom.c")
+  else()
+    message(STATUS "libxml version > 2.11: Can't build lightroom.c")
   endif()
 endif()
 
