@@ -424,6 +424,8 @@ static void _gui_styles_dialog_run(gboolean edit, const char *name, int imgid)
 #ifdef GDK_WINDOWING_QUARTZ
   dt_osx_disallow_fullscreen(GTK_WIDGET(dialog));
 #endif
+  // set default answer pressing enter
+  gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_ACCEPT);
 
   GtkContainer *content_area = GTK_CONTAINER(gtk_dialog_get_content_area(GTK_DIALOG(dialog)));
 
@@ -444,10 +446,14 @@ static void _gui_styles_dialog_run(gboolean edit, const char *name, int imgid)
   gtk_container_add(GTK_CONTAINER(scroll), GTK_WIDGET(sbox));
 
   sd->name = gtk_entry_new();
+  // passing the enter key to the dialog
+  gtk_entry_set_activates_default(GTK_ENTRY(sd->name), TRUE);
   gtk_entry_set_placeholder_text(GTK_ENTRY(sd->name), _("name"));
   gtk_widget_set_tooltip_text(sd->name, _("enter a name for the new style"));
 
   sd->description = gtk_entry_new();
+  // passing the enter key to the dialog
+  gtk_entry_set_activates_default(GTK_ENTRY(sd->description), TRUE);
   gtk_entry_set_placeholder_text(GTK_ENTRY(sd->description), _("description"));
   gtk_widget_set_tooltip_text(sd->description,
                               _("enter a description for the new style, this description is searchable"));
