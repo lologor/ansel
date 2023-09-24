@@ -38,9 +38,7 @@
 #include "develop/blend.h"
 #include "develop/develop.h"
 #include "develop/imageop.h"
-#ifdef LIGHTROOM_IMPORT
 #include "develop/lightroom.h"
-#endif
 #include "develop/masks.h"
 #include "gui/gtk.h"
 #include "gui/presets.h"
@@ -1133,12 +1131,38 @@ static void _cleanup_history(const int imgid)
   sqlite3_finalize(stmt);
 }
 
+static void _warn_about_history_overuse(dt_develop_t *dev)
+{
+  /* History stores one entry per module, everytime a parameter is changed.
+  *  For modules using masks, we also store a full snapshot of masks states.
+  *  All that is saved into database and XMP. When history entries × number of mask > 250, 
+  *  we get a really bad performance penalty.
+  */
+  gint states = 0;
+
+  GList *history = dev->history;
+  for(int i = 0; history; i++)
+  {
+    dt_dev_history_item_t *hist_item = (dt_dev_history_item_t *)(history->data);
+    states += g_list_length(hist_item->forms);
+    history = g_list_next(history);
+  }
+
+  if(states > 250)
+  {
+    dt_toast_log(_("Your history is storing %d mask states. To ensure smooth operation, consider compressing "
+                   "history and removing unused masks."),
+                 states);
+  }
+}
+
 void dt_dev_write_history_ext(dt_develop_t *dev, const int imgid)
 {
   sqlite3_stmt *stmt;
   dt_lock_image(imgid);
 
   _cleanup_history(imgid);
+  _warn_about_history_overuse(dev);
 
   // write history entries
 
@@ -1570,6 +1594,8 @@ static void _dev_merge_history(dt_develop_t *dev, const int imgid)
 void _dev_write_history(dt_develop_t *dev, const int imgid)
 {
   _cleanup_history(imgid);
+  _warn_about_history_overuse(dev);
+
   // write history entries
   GList *history = dev->history;
   for(int i = 0; history; i++)
@@ -1630,9 +1656,7 @@ void dt_dev_read_history_ext(dt_develop_t *dev, const int imgid, gboolean no_ima
     dt_print(DT_DEBUG_PARAMS, "[history] temporary history merged with image history\n");
 
     //  first time we are loading the image, try to import lightroom .xmp if any
-  #ifdef LIGHTROOM_IMPORT
     if(dev->image_loading && first_run) dt_lightroom_import(dev->image_storage.id, dev, TRUE);
-  #endif
   }
 
   sqlite3_stmt *stmt;

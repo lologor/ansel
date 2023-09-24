@@ -1150,7 +1150,6 @@ GtkWidget *dt_gui_preferences_bool(GtkGrid *grid, const char *key, const guint c
   gtk_widget_add_events(labelev, GDK_BUTTON_PRESS_MASK);
   gtk_container_add(GTK_CONTAINER(labelev), w_label);
   GtkWidget *w = gtk_check_button_new();
-  gtk_widget_set_name(w, key);
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(w), dt_conf_get_bool(key));
   gtk_grid_attach(GTK_GRID(grid), labelev, swap ? (col + 1) : col, line, 1, 1);
   gtk_grid_attach(GTK_GRID(grid), w, swap ? col : (col + 1), line, 1, 1);
@@ -1201,7 +1200,6 @@ GtkWidget *dt_gui_preferences_int(GtkGrid *grid, const char *key, const guint co
   gint min = MAX(G_MININT, dt_confgen_get_int(key, DT_MIN));
   gint max = MIN(G_MAXINT, dt_confgen_get_int(key, DT_MAX));
   GtkWidget *w = gtk_spin_button_new_with_range(min, max, 1.0);
-  gtk_widget_set_name(w, key);
   gtk_widget_set_hexpand(w, FALSE);
   gtk_spin_button_set_digits(GTK_SPIN_BUTTON(w), 0);
   gtk_spin_button_set_value(GTK_SPIN_BUTTON(w), dt_conf_get_int(key));
@@ -1310,7 +1308,6 @@ GtkWidget *dt_gui_preferences_enum(GtkGrid *grid, const char *key, const guint c
   g_free(str);
 
   GtkWidget *w = gtk_combo_box_new_with_model(GTK_TREE_MODEL(store));
-  gtk_widget_set_name(w, key);
   gtk_widget_set_hexpand(w, FALSE);
   g_object_unref(store);
   GtkCellRenderer *renderer = gtk_cell_renderer_text_new();
@@ -1371,7 +1368,6 @@ GtkWidget *dt_gui_preferences_string(GtkGrid *grid, const char *key, const guint
   const char *str = dt_conf_get_string_const(key);
   gtk_entry_set_text(GTK_ENTRY(w), str);
   gtk_widget_set_hexpand(w, TRUE);
-  gtk_widget_set_name(w, key);
 
   gtk_grid_attach(GTK_GRID(grid), labelev, col, line, 1, 1);
   gtk_grid_attach(GTK_GRID(grid), w, col + 1, line, 1, 1);

@@ -249,7 +249,7 @@ const char *dt_import_session_name(struct dt_import_session_t *self)
 /* This returns a unique filename using session path **and** the filename.
    If current is true we will use the original filename otherwise use the pattern.
 */
-const char *dt_import_session_filename(struct dt_import_session_t *self, gboolean use_filename)
+const char *dt_import_session_filename(struct dt_import_session_t *self)
 {
   gchar *result_fname = NULL;
 
@@ -266,11 +266,7 @@ const char *dt_import_session_filename(struct dt_import_session_t *self, gboolea
 
   /* verify that expanded path and filename yields a unique file */
   const char *path = dt_import_session_path(self, TRUE);
-
-  if(use_filename)
-    result_fname = g_strdup(self->vp->filename);
-  else
-    result_fname = dt_variables_expand(self->vp, pattern, TRUE);
+  result_fname = dt_variables_expand(self->vp, pattern, TRUE);
 
   char *fname = g_build_path(G_DIR_SEPARATOR_S, path, result_fname, (char *)NULL);
   char *previous_fname = fname;
@@ -381,4 +377,3 @@ const char *dt_import_session_path(struct dt_import_session_t *self, gboolean cu
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
 // clang-format on
-

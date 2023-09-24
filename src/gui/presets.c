@@ -1145,7 +1145,7 @@ static void _gui_presets_popup_menu_show_internal(dt_dev_operation_t op, int32_t
       label = g_strdup_printf("%s %s", name, _("(default)"));
     else
       label = g_strdup(name);
-    mi = gtk_check_menu_item_new_with_label(label);
+    mi = gtk_menu_item_new_with_label(label);
     dt_gui_add_class(mi, "dt_transparent_background");
     g_free(label);
 
@@ -1156,8 +1156,7 @@ static void _gui_presets_popup_menu_show_internal(dt_dev_operation_t op, int32_t
     {
       active_preset = cnt;
       writeprotect = sqlite3_column_int(stmt, 2);
-      dt_gui_add_class(mi, "active_menu_item");
-      gtk_check_menu_item_set_active(GTK_CHECK_MENU_ITEM(mi), TRUE);
+      dt_gui_add_class(mi, "menu-active");
     }
 
     if(isdisabled)

@@ -670,7 +670,7 @@ static void _metadata_view_update_values(dt_lib_module_t *self)
       case md_internal_fullpath:
       {
         gboolean from_cache = FALSE;
-        dt_image_full_path(img->id, text, sizeof(text), &from_cache);
+        dt_image_full_path(img->id,  text,  sizeof(text),  &from_cache, __FUNCTION__);
         _metadata_update_value(md_internal_fullpath, text, self);
       }
       break;
@@ -1190,7 +1190,7 @@ void _menuitem_preferences(GtkMenuItem *menuitem, dt_lib_module_t *self)
 
   GtkWidget *w = gtk_scrolled_window_new(NULL, NULL);
   gtk_widget_set_size_request(w, -1, DT_PIXEL_APPLY_DPI(600));
-  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(w), GTK_POLICY_NEVER, GTK_POLICY_ALWAYS);
+  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(w), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
   gtk_scrolled_window_set_overlay_scrolling(GTK_SCROLLED_WINDOW(w), FALSE);
   gtk_box_pack_start(GTK_BOX(area), w, TRUE, TRUE, 0);
 

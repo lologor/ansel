@@ -1135,7 +1135,7 @@ static gboolean _area_draw_callback(GtkWidget *widget, cairo_t *crf, dt_iop_modu
   // clear bg, match color of the notebook tabs:
   GdkRGBA color;
   GtkStyleContext *context = gtk_widget_get_style_context(widget);
-  gboolean color_found = gtk_style_context_lookup_color(context, "selected_bg_color", &color);
+  gboolean color_found = gtk_style_context_lookup_color(context, "graph_overlay", &color);
   if(!color_found)
   {
     color.red = 1.0;
@@ -1428,7 +1428,7 @@ static gboolean _bottom_area_draw_callback(GtkWidget *widget, cairo_t *crf, dt_i
   // clear bg, match color of the notebook tabs:
   GdkRGBA color;
   GtkStyleContext *context = gtk_widget_get_style_context(widget);
-  gboolean color_found = gtk_style_context_lookup_color(context, "selected_bg_color", &color);
+  gboolean color_found = gtk_style_context_lookup_color(context, "graph_overlay", &color);
   if(!color_found)
   {
     color.red = 1.0;

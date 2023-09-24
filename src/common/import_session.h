@@ -57,7 +57,7 @@ const char *dt_import_session_name(struct dt_import_session_t *self);
 /** \brief get import session filename.
     \param[in] current If TRUE the current filename will be returned without evaluating a new filename.
  */
-const char *dt_import_session_filename(struct dt_import_session_t *self, gboolean use_filename);
+const char *dt_import_session_filename(struct dt_import_session_t *self);
 /** \brief get import session path
     \param[in] use_filename If TRUE the filename passed by dt_import_session_set_filename will be returned
     without evaluating a new filename.
@@ -69,4 +69,3 @@ const char *dt_import_session_path(struct dt_import_session_t *self, gboolean cu
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
 // clang-format on
-

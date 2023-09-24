@@ -38,9 +38,7 @@
 #include "control/conf.h"
 #include "control/control.h"
 #include "control/jobs.h"
-#ifdef LIGHTROOM_IMPORT
 #include "develop/lightroom.h"
-#endif
 #include "win/filepath.h"
 #ifdef USE_LUA
 #include "lua/image.h"
@@ -337,7 +335,7 @@ gboolean dt_image_safe_remove(const int32_t imgid)
   char pathname[PATH_MAX] = { 0 };
   gboolean from_cache = TRUE;
 
-  dt_image_full_path(imgid, pathname, sizeof(pathname), &from_cache);
+  dt_image_full_path(imgid,  pathname,  sizeof(pathname),  &from_cache, __FUNCTION__);
 
   if(!from_cache)
     return TRUE;
@@ -351,7 +349,18 @@ gboolean dt_image_safe_remove(const int32_t imgid)
   }
 }
 
-void dt_image_full_path(const int32_t imgid, char *pathname, size_t pathname_len, gboolean *from_cache)
+/**
+ * @brief Get the full path of an image out of the database.
+ * TODO: This gets called too many times and the output should be cached.
+ * TODO: Document where the pathname_len is being set.
+ * 
+ * @param imgid The image ID.
+ * @param pathname A pointer storing the returned value from the sql request.
+ * @param pathname_len Number of characters of the path set outside the function.
+ * @param from_cache Boolean, false returns the orgina file (file system), true tries to ge a local copy.
+ * @param calling_func Pass __FUNCTION__ for identifcation of callers of this function.
+ */
+void dt_image_full_path(const int32_t imgid, char *pathname, size_t pathname_len, gboolean *from_cache, const char *calling_func)
 {
   sqlite3_stmt *stmt;
   // clang-format off
@@ -371,12 +380,14 @@ void dt_image_full_path(const int32_t imgid, char *pathname, size_t pathname_len
   {
     char lc_pathname[PATH_MAX] = { 0 };
     _image_local_copy_full_path(imgid, lc_pathname, sizeof(lc_pathname));
-
     if(g_file_test(lc_pathname, G_FILE_TEST_EXISTS))
       g_strlcpy(pathname, (char *)lc_pathname, pathname_len);
     else
       *from_cache = FALSE;
   }
+
+  // NOTE: must come after sql as it sets the pointer pathname which is undefined otherwise.
+  dt_print(DT_DEBUG_SQL, "dt_image_full_path pathname (%s) called from %s, cache=%i\n", pathname, calling_func, *from_cache);
 }
 
 static void _image_local_copy_full_path(const int32_t imgid, char *pathname, size_t pathname_len)
@@ -482,7 +493,7 @@ void dt_image_set_xmp_rating(dt_image_t *img, const int rating)
 
   if(rating == -2) // assuming that value -2 cannot be found
   {
-    img->flags |= (DT_VIEW_RATINGS_MASK & dt_conf_get_int("ui_last/import_initial_rating"));
+    img->flags |= (DT_VIEW_RATINGS_MASK & 0);
   }
   else if(rating == -1)
   {
@@ -1461,13 +1472,6 @@ static uint32_t _image_import_internal(const int32_t film_id, const char *filena
     return 0;
   }
   char *ext = g_ascii_strdown(cc + 1, -1);
-  if(override_ignore_jpegs == FALSE && (!strcmp(ext, "jpg") || !strcmp(ext, "jpeg"))
-     && dt_conf_get_bool("ui_last/import_ignore_jpegs"))
-  {
-    g_free(normalized_filename);
-    g_free(ext);
-    return 0;
-  }
   int supported = 0;
   for(const char **i = dt_supported_extensions; *i != NULL; i++)
     if(!strcmp(ext, *i))
@@ -1505,7 +1509,7 @@ static uint32_t _image_import_internal(const int32_t film_id, const char *filena
   }
 
   // also need to set the no-legacy bit, to make sure we get the right presets (new ones)
-  uint32_t flags = dt_conf_get_int("ui_last/import_initial_rating");
+  uint32_t flags = 0;
   flags |= DT_IMAGE_NO_LEGACY_PRESETS;
   // and we set the type of image flag (from extension for now)
   gchar *extension = g_strrstr(imgfname, ".");
@@ -1649,18 +1653,15 @@ static uint32_t _image_import_internal(const int32_t film_id, const char *filena
 
   // read dttags and exif for database queries!
   (void)dt_exif_read(img, normalized_filename);
-  if(dt_conf_get_bool("ui_last/ignore_exif_rating"))
-    img->flags = flags;
   char dtfilename[PATH_MAX] = { 0 };
   g_strlcpy(dtfilename, normalized_filename, sizeof(dtfilename));
   // dt_image_path_append_version(id, dtfilename, sizeof(dtfilename));
   g_strlcat(dtfilename, ".xmp", sizeof(dtfilename));
 
+  const int res = dt_exif_xmp_read(img, dtfilename, 0);
+
   // write through to db, but not to xmp.
   dt_image_cache_write_release(darktable.image_cache, img, DT_IMAGE_CACHE_RELAXED);
-
-#ifdef LIGHTROOM_IMPORT
-  const int res = dt_exif_xmp_read(img, dtfilename, 0);
 
   // read all sidecar files
   const int nb_xmp = _image_read_duplicates(id, normalized_filename, raise_signals);
@@ -1668,12 +1669,13 @@ static uint32_t _image_import_internal(const int32_t film_id, const char *filena
   if((res != 0) && (nb_xmp == 0))
   {
     // Search for Lightroom sidecar file, import tags if found
+    // Actually this was extended by morons to load existing dt/Ansel history from XMP
+    // so the name is actively misleading.
     const gboolean lr_xmp = dt_lightroom_import(id, NULL, TRUE);
     // Make sure that lightroom xmp data (label in particular) are saved in dt xmp
     if(lr_xmp)
       dt_image_write_sidecar_file(id);
   }
-#endif
 
   // add a tag with the file extension
   guint tagid = 0;
@@ -1865,7 +1867,7 @@ int32_t dt_image_rename(const int32_t imgid, const int32_t filmid, const gchar *
   gchar oldimg[PATH_MAX] = { 0 };
   gchar newimg[PATH_MAX] = { 0 };
   gboolean from_cache = FALSE;
-  dt_image_full_path(imgid, oldimg, sizeof(oldimg), &from_cache);
+  dt_image_full_path(imgid,  oldimg,  sizeof(oldimg),  &from_cache, __FUNCTION__);
   gchar *newdir = NULL;
 
   sqlite3_stmt *film_stmt;
@@ -2074,7 +2076,7 @@ int32_t dt_image_copy_rename(const int32_t imgid, const int32_t filmid, const gc
   GFile *src = NULL, *dest = NULL;
   if(newdir)
   {
-    dt_image_full_path(imgid, srcpath, sizeof(srcpath), &from_cache);
+    dt_image_full_path(imgid,  srcpath,  sizeof(srcpath),  &from_cache, __FUNCTION__);
     oldFilename = g_path_get_basename(srcpath);
     gchar *destpath;
     if(newname)
@@ -2344,7 +2346,7 @@ int dt_image_local_copy_set(const int32_t imgid)
   gchar destpath[PATH_MAX] = { 0 };
 
   gboolean from_cache = FALSE;
-  dt_image_full_path(imgid, srcpath, sizeof(srcpath), &from_cache);
+  dt_image_full_path(imgid,  srcpath,  sizeof(srcpath),  &from_cache, __FUNCTION__);
 
   _image_local_copy_full_path(imgid, destpath, sizeof(destpath));
 
@@ -2428,10 +2430,10 @@ int dt_image_local_copy_reset(const int32_t imgid)
   // check that the original file is accessible
 
   gboolean from_cache = FALSE;
-  dt_image_full_path(imgid, destpath, sizeof(destpath), &from_cache);
+  dt_image_full_path(imgid,  destpath,  sizeof(destpath),  &from_cache, __FUNCTION__);
 
   from_cache = TRUE;
-  dt_image_full_path(imgid, locppath, sizeof(locppath), &from_cache);
+  dt_image_full_path(imgid,  locppath,  sizeof(locppath),  &from_cache, __FUNCTION__);
   dt_image_path_append_version(imgid, locppath, sizeof(locppath));
   g_strlcat(locppath, ".xmp", sizeof(locppath));
 
@@ -2503,17 +2505,8 @@ int dt_image_write_sidecar_file(const int32_t imgid)
 
     // FIRST: check if the original file is present
     gboolean from_cache = FALSE;
-    dt_image_full_path(imgid, filename, sizeof(filename), &from_cache);
-
-    if(!g_file_test(filename, G_FILE_TEST_EXISTS))
-    {
-      // OTHERWISE: check if the local copy exists
-      from_cache = TRUE;
-      dt_image_full_path(imgid, filename, sizeof(filename), &from_cache);
-
-      //  nothing to do, the original is not accessible and there is no local copy
-      if(!from_cache) return 1;
-    }
+    dt_image_full_path(imgid, filename, sizeof(filename), &from_cache, __FUNCTION__);
+    if(!from_cache) return 1;
 
     dt_image_path_append_version(imgid, filename, sizeof(filename));
     g_strlcat(filename, ".xmp", sizeof(filename));
@@ -2592,7 +2585,7 @@ void dt_image_local_copy_synch(void)
     const int32_t imgid = sqlite3_column_int(stmt, 0);
     gboolean from_cache = FALSE;
     char filename[PATH_MAX] = { 0 };
-    dt_image_full_path(imgid, filename, sizeof(filename), &from_cache);
+    dt_image_full_path(imgid,  filename,  sizeof(filename),  &from_cache, __FUNCTION__);
 
     if(g_file_test(filename, G_FILE_TEST_EXISTS))
     {
@@ -2736,7 +2729,7 @@ char *dt_image_get_audio_path(const int32_t imgid)
 {
   gboolean from_cache = FALSE;
   char image_path[PATH_MAX] = { 0 };
-  dt_image_full_path(imgid, image_path, sizeof(image_path), &from_cache);
+  dt_image_full_path(imgid,  image_path,  sizeof(image_path),  &from_cache, __FUNCTION__);
 
   return dt_image_get_audio_path_from_path(image_path);
 }
@@ -2768,7 +2761,7 @@ char *dt_image_get_text_path(const int32_t imgid)
 {
   gboolean from_cache = FALSE;
   char image_path[PATH_MAX] = { 0 };
-  dt_image_full_path(imgid, image_path, sizeof(image_path), &from_cache);
+  dt_image_full_path(imgid,  image_path,  sizeof(image_path),  &from_cache, __FUNCTION__);
 
   return dt_image_get_text_path_from_path(image_path);
 }

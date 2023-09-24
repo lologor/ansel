@@ -90,9 +90,6 @@ char *dt_exif_xmp_read_string(const int imgid);
 /** read xmp sidecar file. */
 int dt_exif_xmp_read(dt_image_t *img, const char *filename, const int history_only);
 
-/** apply default import metadata */
-void dt_exif_apply_default_metadata(dt_image_t *img);
-
 /** fetch largest exif thumbnail jpg bytestream into buffer*/
 int dt_exif_get_thumbnail(const char *path, uint8_t **buffer, size_t *size, char **mime_type);
 
@@ -120,4 +117,3 @@ void dt_exif_get_datetime_taken(const uint8_t *data, size_t size, char *datetime
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
 // clang-format on
-

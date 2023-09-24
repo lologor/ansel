@@ -107,8 +107,8 @@ void gui_init(dt_lib_module_t *self)
   dt_gui_add_class(GTK_WIDGET(d->zoom_entry), "menu-text-entry");
   gtk_entry_set_alignment(GTK_ENTRY(d->zoom_entry), 1.0);
   gtk_entry_set_max_length(GTK_ENTRY(d->zoom_entry), 2);
-  gtk_entry_set_width_chars(GTK_ENTRY(d->zoom_entry), 3);
-  gtk_entry_set_max_width_chars(GTK_ENTRY(d->zoom_entry), 3);
+  gtk_entry_set_width_chars(GTK_ENTRY(d->zoom_entry), 2);
+  gtk_entry_set_max_width_chars(GTK_ENTRY(d->zoom_entry), 2);
   gtk_box_pack_start(GTK_BOX(self->widget), GTK_WIDGET(d->zoom_entry), FALSE, FALSE, 0);
 
   g_signal_connect(G_OBJECT(d->zoom), "value-changed", G_CALLBACK(_lib_lighttable_zoom_slider_changed), self);
