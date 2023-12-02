@@ -248,9 +248,9 @@ glib-compile-schemas "$dtResourcesDir"/share/glib-2.0/schemas/
 
 # Define gtk-query-immodules-3.0
 immodulesCacheFile="$dtResourcesDir"/lib/gtk-3.0/3.0.0/immodules.cache
-gtkVersion=$(pkg-config --modversion gtk+-3.0)
-sed -i '' "s#$homebrewHome/Cellar/gtk+3/$gtkVersion/lib/gtk-3.0/3.0.0/immodules#@executable_path/../Resources/lib/gtk-3.0/3.0.0/immodules#g" "$immodulesCacheFile"
-sed -i '' "s#$homebrewHome/Cellar/gtk+3/$gtkVersion/share/locale#@executable_path/../Resources/share/locale#g" "$immodulesCacheFile"
+hbGtk3Path=$(brew info gtk+3|grep "/`pkg-config --modversion gtk+-3.0`"|cut -f1 -d' ')
+sed -i '' "s#$hbGtk3Path/lib/gtk-3.0/3.0.0/immodules#@executable_path/../Resources/lib/gtk-3.0/3.0.0/immodules#g" "$immodulesCacheFile"
+sed -i '' "s#$hbGtk3Path/share/locale#@executable_path/../Resources/share/locale#g" "$immodulesCacheFile"
 # Rename and move it to the right place
 mv "$immodulesCacheFile" "$dtResourcesDir"/etc/gtk-3.0/gtk.immodules
 
