@@ -24,7 +24,7 @@ homebrewHome=$(brew --prefix)
 # Check for previous attempt and clean
 if [[ -d "$buildDir" ]]; then
     echo "Deleting directory $buildDir ... "
-    rm -R "$buildDir"
+    rm -rf "$buildDir"
 fi
 
 # Create directory
