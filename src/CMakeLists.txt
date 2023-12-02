@@ -105,6 +105,7 @@ FILE(GLOB SOURCE_FILES
   "develop/imageop.c"
   "develop/imageop_math.c"
   "develop/imageop_gui.c"
+  "develop/lightroom.c"
   "develop/pixelpipe.c"
   "develop/blend.c"
   "develop/blend_gui.c"
@@ -400,13 +401,13 @@ include_directories(SYSTEM ${LIBXML2_INCLUDE_DIR})
 list(APPEND LIBS ${LIBXML2_LIBRARIES})
 add_definitions(${LIBXML2_DEFINITIONS})
 
-if(USE_LIGHTROOM)  
-  if(LibXml2_VERSION VERSION_LESS 2.11)
-    list(APPEND SOURCE_FILES "develop/lightroom.c")
-  else()
-    message(STATUS "libxml version > 2.11: Can't build lightroom.c")
-  endif()
-endif()
+#if(USE_LIGHTROOM)  
+#  if(LibXml2_VERSION VERSION_LESS 2.11)
+#    list(APPEND SOURCE_FILES "develop/lightroom.c")
+#  else()
+#    message(STATUS "libxml version > 2.11: Can't build lightroom.c")
+#  endif()
+#endif()
 
 find_package(Sqlite3 3.15 REQUIRED)
 if(NOT Sqlite3_VERSION VERSION_LESS 3.24)
