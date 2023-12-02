@@ -36,6 +36,11 @@
 			</array>
 		</dict>
 	</array>
+	<key>LSEnvironment</key>
+	<dict>
+    	<key>KMP_DUPLICATE_LIB_OK</key>
+    	<string>True</string>
+	</dict>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Roboto-Black.ttf</string>
