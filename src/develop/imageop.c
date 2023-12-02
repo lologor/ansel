@@ -1629,6 +1629,9 @@ void dt_iop_commit_params(dt_iop_module_t *module, dt_iop_params_t *params,
                           dt_develop_blend_params_t *blendop_params, dt_dev_pixelpipe_t *pipe,
                           dt_dev_pixelpipe_iop_t *piece)
 {
+  piece->hash = piece->global_hash = 0;
+  if(!piece->enabled) return;
+
   // 1. commit params
 
   memcpy(piece->blendop_data, blendop_params, sizeof(dt_develop_blend_params_t));
@@ -1650,42 +1653,33 @@ void dt_iop_commit_params(dt_iop_module_t *module, dt_iop_params_t *params,
 
   module->commit_params(module, params, pipe, piece);
 
-  // 2. compute the hash only if piece is enabled
+  // 2. compute the hash
+  /* construct module params data for hash calc */
+  int length = module->params_size;
+  if(module->flags() & IOP_FLAGS_SUPPORTS_BLENDING) length += sizeof(dt_develop_blend_params_t);
+  dt_masks_form_t *grp = dt_masks_get_from_id(darktable.develop, blendop_params->mask_id);
+  length += dt_masks_group_get_hash_buffer_length(grp);
 
-  piece->hash = 0;
-  piece->global_hash = 0;
-
-  if(piece->enabled)
+  char *str = malloc(length);
+  memcpy(str, module->params, module->params_size);
+  int pos = module->params_size;
+  /* if module supports blend op add blend params into account */
+  if(module->flags() & IOP_FLAGS_SUPPORTS_BLENDING)
   {
-    /* construct module params data for hash calc */
-    int length = module->params_size;
-    if(module->flags() & IOP_FLAGS_SUPPORTS_BLENDING) length += sizeof(dt_develop_blend_params_t);
-    dt_masks_form_t *grp = dt_masks_get_from_id(darktable.develop, blendop_params->mask_id);
-    length += dt_masks_group_get_hash_buffer_length(grp);
-
-    char *str = malloc(length);
-    memcpy(str, module->params, module->params_size);
-    int pos = module->params_size;
-    /* if module supports blend op add blend params into account */
-    if(module->flags() & IOP_FLAGS_SUPPORTS_BLENDING)
-    {
-      memcpy(str + module->params_size, blendop_params, sizeof(dt_develop_blend_params_t));
-      pos += sizeof(dt_develop_blend_params_t);
-    }
-
-    /* and we add masks */
-    dt_masks_group_get_hash_buffer(grp, str + pos);
-
-    uint64_t hash = 5381;
-    for(int i = 0; i < length; i++) hash = ((hash << 5) + hash + piece->enabled) ^ str[i];
-    piece->hash = hash;
-
-    free(str);
-
-    dt_print(DT_DEBUG_PARAMS, "[params] commit for %s in pipe %i with hash %lu\n", module->op, pipe->type, (long unsigned int)piece->hash);
+    memcpy(str + module->params_size, blendop_params, sizeof(dt_develop_blend_params_t));
+    pos += sizeof(dt_develop_blend_params_t);
   }
-  // printf("commit params hash += module %s: %lu, enabled = %d\n", piece->module->op, piece->hash,
-  // piece->enabled);
+
+  /* and we add masks */
+  dt_masks_group_get_hash_buffer(grp, str + pos);
+
+  // Get the hash
+  piece->hash = piece->global_hash = dt_hash(5381, str, length);
+
+  free(str);
+
+  dt_print(DT_DEBUG_PARAMS, "[params] commit for %s in pipe %i with hash %lu\n", module->op, pipe->type, (long unsigned int)piece->hash);
+
 }
 
 void dt_iop_gui_cleanup_module(dt_iop_module_t *module)

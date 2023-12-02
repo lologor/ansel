@@ -655,6 +655,17 @@ static inline void dt_unreachable_codepath_with_caller(const char *description, 
   __builtin_unreachable();
 }
 
+static inline uint64_t dt_hash(uint64_t hash, const char *str, size_t size)
+{
+  // Scramble bits in str to create an (hopefully) unique hash representing the state of str
+  // Dan Bernstein algo v2 http://www.cse.yorku.ca/~oz/hash.html
+  // hash should be inited to 5381 if first run, or from a previous hash computed with this function.
+  for(size_t i = 0; i < size; i++)
+    hash = ((hash << 5) + hash) ^ str[i];
+
+  return hash;
+}
+
 /** define for max path/filename length */
 #define DT_MAX_FILENAME_LEN 256
 

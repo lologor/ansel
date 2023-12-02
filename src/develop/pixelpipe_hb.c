@@ -127,7 +127,7 @@ int dt_dev_pixelpipe_init_dummy(dt_dev_pixelpipe_t *pipe, int32_t width, int32_t
 int dt_dev_pixelpipe_init_preview(dt_dev_pixelpipe_t *pipe)
 {
   // don't know which buffer size we're going to need, set to 0 (will be alloced on demand)
-  const int res = dt_dev_pixelpipe_init_cached(pipe, 0, 8);
+  const int res = dt_dev_pixelpipe_init_cached(pipe, 0, 64);
   pipe->type = DT_DEV_PIXELPIPE_PREVIEW;
   return res;
 }
@@ -135,7 +135,7 @@ int dt_dev_pixelpipe_init_preview(dt_dev_pixelpipe_t *pipe)
 int dt_dev_pixelpipe_init(dt_dev_pixelpipe_t *pipe)
 {
   // don't know which buffer size we're going to need, set to 0 (will be alloced on demand)
-  const int res = dt_dev_pixelpipe_init_cached(pipe, 0, 8);
+  const int res = dt_dev_pixelpipe_init_cached(pipe, 0, 64);
   pipe->type = DT_DEV_PIXELPIPE_FULL;
   return res;
 }
@@ -330,7 +330,7 @@ void dt_dev_pixelpipe_create_nodes(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev)
   dt_pthread_mutex_unlock(&pipe->busy_mutex); // safe for others to use/mess with the pipe now
 }
 
-void dt_pixelpipe_get_global_hash(dt_dev_pixelpipe_t *pipe)
+void dt_pixelpipe_get_global_hash(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev)
 {
   /* Traverse the pipeline node by node and compute the cumulative (global) hash of each module.
   *  This hash takes into account the hashes of the previous modules and the size of the current ROI.
@@ -346,11 +346,31 @@ void dt_pixelpipe_get_global_hash(dt_dev_pixelpipe_t *pipe)
     dt_dev_pixelpipe_iop_t *piece = (dt_dev_pixelpipe_iop_t *)node->data;
     if(piece->enabled)
     {
-      hash = ((hash << 5) + hash) ^ piece->hash;
+      // Combine with the previous modules hashes
+      hash = dt_hash(hash, (const char *)&piece->hash, sizeof(uint64_t));
 
       // Factor-in the ROI out sizes
-      char *str = (char *)&piece->processed_roi_out;
-      for(size_t i = 0; i < sizeof(dt_iop_roi_t); i++) hash = ((hash << 5) + hash) ^ str[i];
+      hash = dt_hash(hash, (const char *)&piece->processed_roi_out, sizeof(dt_iop_roi_t));
+
+      if(pipe->type & DT_DEV_PIXELPIPE_PREVIEW)
+      {
+        // Preview-centric tweaks : color-pickers and histograms
+        if(piece->module->request_color_pick != DT_REQUEST_COLORPICK_OFF)
+        {
+          if(darktable.lib->proxy.colorpicker.primary_sample->size == DT_LIB_COLORPICKER_SIZE_BOX)
+            hash = dt_hash(hash, (const char *)darktable.lib->proxy.colorpicker.primary_sample->box, sizeof(float) * 4);
+          else if(darktable.lib->proxy.colorpicker.primary_sample->size == DT_LIB_COLORPICKER_SIZE_POINT)
+            hash = dt_hash(hash, (const char *)darktable.lib->proxy.colorpicker.primary_sample->point, sizeof(float) * 2);
+        }
+        hash = dt_hash(hash, (const char *)&piece->module->request_histogram, sizeof(dt_dev_request_flags_t));
+      }
+      if(pipe->type & DT_DEV_PIXELPIPE_FULL)
+      {
+        // Full-preview-centric tweaks : mask display
+        hash = dt_hash(hash, (const char *)&piece->module->request_mask_display, sizeof(int));
+        hash = dt_hash(hash, (const char *)&piece->module->suppress_mask, sizeof(uint32_t));
+      }
+
       /*
       fprintf(stdout, "[hash %i] module %s produced %lu (%i, %i, %i, %i)\n",
               pipe->type, piece->module->op, hash,
@@ -520,7 +540,7 @@ void dt_dev_pixelpipe_change(dt_dev_pixelpipe_t *pipe, struct dt_develop_t *dev)
                                   &pipe->processed_height);
 
   // This needs correct roi_out, so run get_dimensions before
-  dt_pixelpipe_get_global_hash(pipe);
+  dt_pixelpipe_get_global_hash(pipe, dev);
   dt_show_times(&start, "[dt_dev_pixelpipe_change] pipeline resync on the current modules stack");
 }
 
@@ -1099,6 +1119,33 @@ static int pixelpipe_process_on_CPU(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev,
   return 0; //no errors
 }
 
+static uint64_t _default_pipe_hash(dt_dev_pixelpipe_t *pipe)
+{
+  uint64_t hash = dt_hash(5381, (const char *)&pipe->image.id, sizeof(uint32_t));
+  hash += (pipe->type & DT_DEV_PIXELPIPE_FAST);
+  return hash;
+}
+
+static uint64_t _node_hash(dt_dev_pixelpipe_t *pipe, const dt_dev_pixelpipe_iop_t *piece, const dt_iop_roi_t *roi_out, const int pos)
+{
+  uint64_t hash = piece
+                    ? piece->global_hash
+                    : dt_hash(_default_pipe_hash(pipe), (const char *)&pos, sizeof(int));
+
+  // For panned/zoomed preview in darkroom, the global hash doesn't account for
+  // coordinates changes in viewport, since roi_out computed from commit_params
+  // accounts only for geometric distortions (perspective, crop, liquify).
+  // The roi_out passed from here as parameter accounts for zoom and pan.
+  // We need to amend our module global_hash to represent that.
+  hash = dt_hash(hash, (const char *)roi_out, sizeof(dt_iop_roi_t));
+
+  // Again for fast pipe
+  const uint32_t fast_pipe = (pipe->type & DT_DEV_PIXELPIPE_FAST);
+  hash = dt_hash(hash, (const char *)&fast_pipe, sizeof(uint32_t));
+
+  return hash;
+}
+
 // recursive helper for process:
 static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev, void **output,
                                         void **cl_mem_output, dt_iop_buffer_dsc_t **out_format,
@@ -1140,30 +1187,18 @@ static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *
   const size_t bpp = dt_iop_buffer_dsc_to_bpp(*out_format);
   const size_t bufsize = (size_t)bpp * roi_out->width * roi_out->height;
 
-  // 1) if cached buffer is still available, return data
   if(dt_atomic_get_int(&pipe->shutdown))
-  {
     return 1;
-  }
-  gboolean cache_available = FALSE;
-  uint64_t hash = piece ? piece->global_hash : 0;
 
-  // For panned/zoomed preview in darkroom, the global hash doesn't account for
-  // coordinates changes in viewport, since roi_out computed from commit_params
-  // accounts only for geometric distortions (perspective, crop, liquify).
-  // The roi_out passed from here as parameter accounts for zoom and pan.
-  // We need to amend our module global_hash to represent that.
-  char *str = (char *)roi_out;
-  for(size_t i = 0; i < sizeof(dt_iop_roi_t); i++) hash = ((hash << 5) + hash) ^ str[i];
+  // 1) if cached buffer is still available, return data
+  gboolean cache_available = FALSE;
+  uint64_t hash = _node_hash(pipe, piece, roi_out, pos);
 
   // do not get gamma from cache on preview pipe so we can compute the final scope
   // FIXME: better yet, don't even cache the gamma output in this case -- but then we'd need to allocate a temporary output buffer and garbage collect it
-  if((pipe->type & DT_DEV_PIXELPIPE_PREVIEW) != DT_DEV_PIXELPIPE_PREVIEW
-     || module == NULL
-     || strcmp(module->op, "gamma") != 0)
-  {
+  if(!(module && !strcmp(module->op, "gamma")))
     cache_available = dt_dev_pixelpipe_cache_available(&(pipe->cache), hash);
-  }
+
   if(cache_available)
   {
     if(module)
@@ -2301,7 +2336,7 @@ restart:
   dt_pthread_mutex_lock(&pipe->backbuf_mutex);
   GList *last_node = g_list_last(pipe->nodes);
   const dt_dev_pixelpipe_iop_t *last_module = (const dt_dev_pixelpipe_iop_t *)(last_node->data);
-  pipe->backbuf_hash = last_module->global_hash;
+  pipe->backbuf_hash = _node_hash(pipe, last_module, &roi, pos);
   pipe->backbuf = buf;
   pipe->backbuf_width = width;
   pipe->backbuf_height = height;

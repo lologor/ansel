@@ -197,9 +197,7 @@ void dt_dev_pixelpipe_cache_print(dt_dev_pixelpipe_cache_t *cache)
 {
   for(int k = 0; k < cache->entries; k++)
   {
-    printf("pixelpipe cacheline %d ", k);
-    printf("used %d by %" PRIu64 " (%" PRIu64 ")", cache->used[k], cache->hash[k], cache->hash[k]);
-    printf("\n");
+    printf("pixelpipe cacheline %d used %d by %lu\n", k, cache->used[k], cache->hash[k]);
   }
   printf("cache hit rate so far: %.3f\n", (cache->queries - cache->misses) / (float)cache->queries);
 }
