@@ -81,6 +81,9 @@ function reset_exec_path {
 #        install_name_tool -rpath @loader_path/.. @loader_path/../Resources/lib/ansel "$1"
     fi
 
+    # Handle library relative paths
+    oToolLDependencies=$(echo "$oToolLDependencies" | sed "s#@loader_path/[../]*opt/#${homebrewHome}/opt/#")
+
     # Filter for any homebrew specific paths
     if [[ "$oToolLDependencies" == *"$homebrewHome"* ]]; then
         hbDependencies=$(echo "$oToolLDependencies" | grep "$homebrewHome")
@@ -100,6 +103,15 @@ function reset_exec_path {
 
             # Set correct executable path
             install_name_tool -change "$hbDependency" "@executable_path/../Resources/lib/$dynDepOrigFile" "$1"
+
+            # Check for loader path
+            oToolLoader=$(otool -L "$1" 2>/dev/null | grep '@loader_path' | grep $dynDepOrigFile | cut -d\( -f1 | sed 's/^[[:blank:]]*//;s/[[:blank:]]*$//' ) || true
+            if [[ -n "$oToolLoader" ]]; then
+                echo "Resetting loader path for dependency <$hbDependency> of <$1>"
+                oToolLoaderNew=$(echo $oToolLoader | sed "s#@loader_path/##" | sed "s#../../../../opt/.*##")
+                install_name_tool -change "$oToolLoader" "@loader_path/${oToolLoaderNew}${dynDepOrigFile}" "$1"  || true
+            fi
+
         done
 
     fi
