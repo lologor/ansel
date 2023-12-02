@@ -98,8 +98,6 @@ function reset_exec_path {
             dynDepOrigFile=$(basename "$hbDependency")
             dynDepTargetFile="$dtResourcesDir/lib/$dynDepOrigFile"
 
-            echo "Resetting executable path for dependency <$hbDependency> of <$1>"
-
             # Set correct executable path
             install_name_tool -change "$hbDependency" "@executable_path/../Resources/lib/$dynDepOrigFile" "$1" || true
 
@@ -288,6 +286,9 @@ cp -L "$homebrewHome"/share/themes/Mac/gtk-3.0/gtk-keys.css "$dtResourcesDir"/sh
 
 # Add fonts
 cp fonts/*  "$dtResourcesDir"/fonts/
+
+# Patch ansel.css - Solving font issue with Roboto condensed
+patch "$dtResourcesDir"/share/ansel/themes/ansel.css ansel.css.patch
 
 # Create Icon file
 if [ -d "$buildDir"/Icons.iconset ]; then
