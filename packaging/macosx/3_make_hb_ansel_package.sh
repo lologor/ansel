@@ -295,18 +295,18 @@ if [ -d "$buildDir"/Icons.iconset ]; then
 fi
 mkdir "$buildDir"/Icons.iconset
 rsvg-convert -h 644 ../../data/pixmaps/scalable/ansel.svg > "$buildDir/Icons.iconset/icon_512x512.png"
-gm mogrify -crop 512x512+66+66 "$buildDir/Icons.iconset/icon_512x512.png"
+magick mogrify -crop 512x512+66+66 "$buildDir/Icons.iconset/icon_512x512.png"
 cp  "$buildDir/Icons.iconset/icon_512x512.png" "$buildDir/Icons.iconset/icon_256x256@2.png"
 rsvg-convert -h 322 ../../data/pixmaps/scalable/ansel.svg > "$buildDir/Icons.iconset/icon_256x256.png"
-gm mogrify -crop 256x256+33+33 "$buildDir/Icons.iconset/icon_256x256.png"
+magick mogrify -crop 256x256+33+33 "$buildDir/Icons.iconset/icon_256x256.png"
 cp  "$buildDir/Icons.iconset/icon_256x256.png" "$buildDir/Icons.iconset/icon_128x128@2.png"
 rsvg-convert -h 162 ../../data/pixmaps/scalable/ansel.svg > "$buildDir/Icons.iconset/icon_128x128.png"
-gm mogrify -crop 128x128+17+17 "$buildDir/Icons.iconset/icon_128x128.png"
+magick mogrify -crop 128x128+17+17 "$buildDir/Icons.iconset/icon_128x128.png"
 rsvg-convert -h 40 ../../data/pixmaps/scalable/ansel.svg > "$buildDir/Icons.iconset/icon_32x32.png"
-gm mogrify -crop 32x32+4+4 "$buildDir/Icons.iconset/icon_32x32.png"
+magick mogrify -crop 32x32+4+4 "$buildDir/Icons.iconset/icon_32x32.png"
 cp  "$buildDir/Icons.iconset/icon_32x32.png" "$buildDir/Icons.iconset/icon_16x168@2.png"
 rsvg-convert -h 20 ../../data/pixmaps/scalable/ansel.svg > "$buildDir/Icons.iconset/icon_16x16.png"
-gm mogrify -crop 16x16+2+2 "$buildDir/Icons.iconset/icon_16x16.png"
+magick mogrify -crop 16x16+2+2 "$buildDir/Icons.iconset/icon_16x16.png"
 if [ -f "$buildDir/Icons.icns" ]; then
     rm "$buildDir/Icons.icns"
 fi
