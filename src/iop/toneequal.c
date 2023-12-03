@@ -865,6 +865,7 @@ static inline void display_luminance_mask(const float *const restrict in,
                                           const float *const restrict luminance,
                                           float *const restrict out,
                                           const dt_iop_roi_t *const roi_in, const dt_iop_roi_t *const roi_out,
+                                          dt_dev_pixelpipe_iop_t *piece,
                                           const size_t ch)
 {
   const size_t offset_x = (roi_in->x < roi_out->x) ? -roi_in->x + roi_out->x : 0;
@@ -879,7 +880,7 @@ static inline void display_luminance_mask(const float *const restrict in,
 
 #ifdef _OPENMP
 #pragma omp parallel for default(none) \
-  dt_omp_firstprivate(luminance, out, in, in_width, out_width, out_height, offset_x, offset_y, ch) \
+  dt_omp_firstprivate(luminance, out, in, piece, in_width, out_width, out_height, offset_x, offset_y, ch) \
   schedule(static) collapse(2)
 #endif
   for(size_t i = 0 ; i < out_height; ++i)
@@ -890,12 +891,13 @@ static inline void display_luminance_mask(const float *const restrict in,
       const float intensity = sqrtf(fminf(fmaxf(luminance[(i + offset_y) * in_width  + (j + offset_x)] - 0.00390625f, 0.f) / 0.99609375f, 1.f));
       const size_t index = (i * out_width + j) * ch;
       // set gray level for the mask
-      for_each_channel(c,aligned(out))
+      for_four_channels(c,aligned(out))
       {
         out[index + c] = intensity;
       }
       // copy alpha channel
-      out[index + 3] = in[((i + offset_y) * in_width + (j + offset_x)) * ch + 3];
+      if(piece->pipe->mask_display & DT_DEV_PIXELPIPE_DISPLAY_MASK)
+        out[index + 3] = in[((i + offset_y) * in_width + (j + offset_x)) * ch + 3];
     }
 }
 
@@ -1076,8 +1078,9 @@ void toneeq_process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece,
   {
     if(g->mask_display)
     {
-      display_luminance_mask(in, luminance, out, roi_in, roi_out, ch);
+      display_luminance_mask(in, luminance, out, roi_in, roi_out, piece, ch);
       piece->pipe->mask_display = DT_DEV_PIXELPIPE_DISPLAY_PASSTHRU;
+      piece->pipe->bypass_blendif = 1;
     }
     else
       apply_toneequalizer(in, luminance, out, roi_in, roi_out, ch, d);
@@ -1867,13 +1870,14 @@ static void show_luminance_mask_callback(GtkWidget *togglebutton, GdkEventButton
   // if blend module is displaying mask do not display it here
   if(self->request_mask_display)
   {
-    dt_control_log(_("cannot display masks when the blending mask is displayed"));
-    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g->show_luminance_mask), FALSE);
+    self->request_mask_display = DT_DEV_PIXELPIPE_DISPLAY_NONE;
     g->mask_display = 0;
-    return;
   }
   else
+  {
     g->mask_display = !g->mask_display;
+    self->request_mask_display = DT_DEV_PIXELPIPE_DISPLAY_PASSTHRU;
+  }
 
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g->show_luminance_mask), g->mask_display);
 //  dt_dev_reprocess_center(self->dev);

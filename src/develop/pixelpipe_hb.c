@@ -323,16 +323,54 @@ void dt_dev_pixelpipe_create_nodes(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev)
   dt_pthread_mutex_unlock(&pipe->busy_mutex); // safe for others to use/mess with the pipe now
 }
 
+static uint64_t _default_pipe_hash(dt_dev_pixelpipe_t *pipe)
+{
+  // Start with a hash that is unique, image-wise and duplicate-wise.
+  uint64_t hash = dt_hash(5381, (const char *)&pipe->image.id, sizeof(uint32_t));
+  hash = dt_hash(hash, (const char *)&pipe->image.version, sizeof(uint32_t));
+  hash = dt_hash(hash, (const char *)&pipe->image.film_id, sizeof(uint32_t));
+  return hash;
+}
+
+static uint64_t _node_hash(dt_dev_pixelpipe_t *pipe, const dt_dev_pixelpipe_iop_t *piece, const dt_iop_roi_t *roi_out, const int pos)
+{
+  // to be called at runtime, not at pipe init.
+
+  uint64_t hash = piece
+                    ? piece->global_hash
+                    : dt_hash(_default_pipe_hash(pipe), (const char *)&pos, sizeof(int));
+
+  // For panned/zoomed preview in darkroom, the global hash doesn't account for
+  // coordinates changes in viewport, since roi_out computed from commit_params
+  // accounts only for geometric distortions (perspective, crop, liquify).
+  // The roi_out passed from here as parameter accounts for zoom and pan.
+  // We need to amend our module global_hash to represent that.
+  hash = dt_hash(hash, (const char *)roi_out, sizeof(dt_iop_roi_t));
+
+  if(pipe->type == DT_DEV_PIXELPIPE_FULL)
+  {
+    // Mask display option is a sequential property of full preview pipeline,
+    // meaning it can be set by a module process() method at any node at runtime.
+    // Since we don't have it at commit_params() time, we need to be handle it here.
+    hash = dt_hash(hash, (const char *)&pipe->mask_display, sizeof(int));
+    hash = dt_hash(hash, (const char *)&pipe->bypass_blendif, sizeof(int));
+  }
+
+  return hash;
+}
+
+
 void dt_pixelpipe_get_global_hash(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev)
 {
   /* Traverse the pipeline node by node and compute the cumulative (global) hash of each module.
   *  This hash takes into account the hashes of the previous modules and the size of the current ROI.
   *  It is used to map pipeline cache states to current parameters.
   *  It represents the state of internal modules params as well as their position in the pipe and their output size.
+  *  It is to be called at pipe init, not at runtime.
   */
 
   // bernstein hash (djb2)
-  uint64_t hash = dt_hash(5381, (const char *)&pipe->image.id, sizeof(int));
+  uint64_t hash = _default_pipe_hash(pipe);
 
   for(GList *node = pipe->nodes; node; node = g_list_next(node))
   {
@@ -344,6 +382,10 @@ void dt_pixelpipe_get_global_hash(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev)
 
       // Factor-in the ROI out sizes
       hash = dt_hash(hash, (const char *)&piece->processed_roi_out, sizeof(dt_iop_roi_t));
+
+      // Factor-in the instance of the module and its IOP order
+      hash = dt_hash(hash, (const char *)&piece->module->instance, sizeof(int32_t));
+      hash = dt_hash(hash, (const char *)&piece->module->iop_order, sizeof(int));
 
       if(pipe->type & DT_DEV_PIXELPIPE_PREVIEW)
       {
@@ -1118,28 +1160,6 @@ static int pixelpipe_process_on_CPU(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev,
     return 1;
   }
   return 0; //no errors
-}
-
-static uint64_t _default_pipe_hash(dt_dev_pixelpipe_t *pipe)
-{
-  uint64_t hash = dt_hash(5381, (const char *)&pipe->image.id, sizeof(uint32_t));
-  return hash;
-}
-
-static uint64_t _node_hash(dt_dev_pixelpipe_t *pipe, const dt_dev_pixelpipe_iop_t *piece, const dt_iop_roi_t *roi_out, const int pos)
-{
-  uint64_t hash = piece
-                    ? piece->global_hash
-                    : dt_hash(_default_pipe_hash(pipe), (const char *)&pos, sizeof(int));
-
-  // For panned/zoomed preview in darkroom, the global hash doesn't account for
-  // coordinates changes in viewport, since roi_out computed from commit_params
-  // accounts only for geometric distortions (perspective, crop, liquify).
-  // The roi_out passed from here as parameter accounts for zoom and pan.
-  // We need to amend our module global_hash to represent that.
-  hash = dt_hash(hash, (const char *)roi_out, sizeof(dt_iop_roi_t));
-
-  return hash;
 }
 
 static dt_dev_pixelpipe_iop_t *_last_node_in_pipe(dt_dev_pixelpipe_t *pipe)
@@ -2647,7 +2667,7 @@ float *dt_dev_distort_detail_mask(const dt_dev_pixelpipe_t *pipe, float *src, co
     {
       dt_dev_pixelpipe_iop_t *module = (dt_dev_pixelpipe_iop_t *)iter->data;
       if(module->enabled
-         && !(module->module->dev->gui_module && module->module->dev->gui_module != module->module
+         && !(module->module->dev->gui_module
               && module->module->dev->gui_module->operation_tags_filter() & module->module->operation_tags()))
       {
         if(module->module->distort_mask

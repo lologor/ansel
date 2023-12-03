@@ -77,7 +77,6 @@ enum
 };
 
 static void init_tab_presets(GtkWidget *stack);
-static void init_tab_accels(GtkWidget *stack);
 static gint compare_rows_presets(GtkTreeModel *model, GtkTreeIter *a, GtkTreeIter *b, gpointer data);
 static void import_preset(GtkButton *button, gpointer data);
 static void export_preset(GtkButton *button, gpointer data);
@@ -530,7 +529,6 @@ void dt_gui_preferences_show()
   init_tab_security(_preferences_dialog, stack);
   init_tab_storage(_preferences_dialog, stack);
   init_tab_misc(_preferences_dialog, stack);
-  init_tab_accels(stack);
   init_tab_presets(stack);
 
   //open in the appropriate tab if currently in darkroom or lighttable view
@@ -870,11 +868,6 @@ static void init_tab_presets(GtkWidget *stack)
   gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
 
   g_object_unref(G_OBJECT(model));
-}
-
-static void init_tab_accels(GtkWidget *stack)
-{
-  gtk_stack_add_titled(GTK_STACK(stack), dt_shortcuts_prefs(NULL), _("shortcuts"), _("shortcuts"));
 }
 
 // TODO: remember which sections were collapsed/expanded and where the view was scrolled to and restore that

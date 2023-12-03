@@ -65,12 +65,13 @@ jobs:
             libcmocka-dev \
             libcups2-dev \
             libcurl4-gnutls-dev \
+            libde265-dev \
             libimage-exiftool-perl \
+            libinih-dev \
             libgdk-pixbuf2.0-dev \
             libglib2.0-dev \
             libgraphicsmagick1-dev \
             libgtk-3-dev \
-            libheif-dev \
             libjpeg-dev \
             libjson-glib-dev \
             liblcms2-dev \
@@ -95,6 +96,7 @@ jobs:
             libtiff5-dev \
             libwebp-dev \
             libx11-dev \
+            libx265-dev \
             libxml2-dev \
             libxml2-utils \
             ninja-build \
@@ -109,64 +111,95 @@ jobs:
             debianutils;
       # squashfs, libfuse2, gstreamer are deps of AppImage builder, not Ansel
       - name: Checkout ansel source
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           ref: ${{ env.BRANCH }}
           fetch-depth: 500
           submodules: true
           path: src
-      # Fetch exiv2 source, because the version in Ubuntu 20.04 is tooooooo old.
+      # We manually build those dependencies because they are critical, so we
+      # could control the version we bundled
       - name: Checkout exiv2 source
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: 'Exiv2/exiv2'
-          # Exiv2 replaces AutoPtr with UniquePtr, before we update the base
-          # curve tool, stick to 0.27 branch.
-          ref: '0.27-maintenance'
+          ref: 'v0.28.1'
           path: 'exiv2-src'
           fetch-depth: 1
       # Install manually compiled dependencies into system, so ansel will link
       # against it and AppImage will grab it.
-      - name: Manually build exiv2 dependency
+      - name: Manually build and install exiv2
         run: |
           cd exiv2-src
           cmake -B build -G Ninja \
-          -DCMAKE_INSTALL_PREFIX=/usr \
-          -DEXIV2_ENABLE_VIDEO=OFF \
-          -DEXIV2_ENABLE_NLS=ON \
-          -DEXIV2_ENABLE_XMP=ON \
-          -DEXIV2_ENABLE_CURL=ON \
-          -DEXIV2_ENABLE_WEBREADY=ON \
-          -DEXIV2_ENABLE_BMFF=ON
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DEXIV2_ENABLE_VIDEO=OFF \
+            -DEXIV2_ENABLE_NLS=ON \
+            -DEXIV2_ENABLE_XMP=ON \
+            -DEXIV2_ENABLE_CURL=ON \
+            -DEXIV2_ENABLE_WEBREADY=ON \
+            -DEXIV2_ENABLE_BMFF=ON
           ninja -C build
           sudo ninja -C build install
           cd ..
-      # This is needed for the next step
-      - name: Install OAM AVI codec for libavif
+      # This is needed for libavif and libheif.
+      # aom is not on GitHub so cannot use the action.
+      - name: Manually build and install OAM AVI codec for libavif and libheif
         run: |
-          git clone --depth 1 https://aomedia.googlesource.com/aom
-          cd aom
+          git clone --branch v3.7.1 --depth 1 https://aomedia.googlesource.com/aom aom-src
+          cd aom-src
           cmake -B build -G Ninja \
-          -DENABLE_DOCS=OFF \
-          -DBUILD_SHARED_LIBS=ON \
-          -DENABLE_EXAMPLES=OFF \
-          -DENABLE_TESTS=OFF \
-          -DAOM_TARGET_CPU=generic \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DBINARY_PACKAGE_BUILD=1 \
-          -DCMAKE_INSTALL_PREFIX=/usr
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBINARY_PACKAGE_BUILD=1 \
+            -DBUILD_SHARED_LIBS=ON \
+            -DAOM_TARGET_CPU=generic \
+            -DENABLE_DOCS=OFF \
+            -DENABLE_EXAMPLES=OFF \
+            -DENABLE_TESTS=OFF
+          ninja -C build
           sudo ninja -C build install
           cd ..
-      # This is needed on Ubuntu 20.04, which has no libavif-dev package
-      - name: Install libavif from source
+      # This is needed on Ubuntu 20.04, which has no libavif-dev package.
+      - name: Checkout libavif source
+        uses: actions/checkout@v4
+        with:
+          repository: 'AOMediaCodec/libavif'
+          ref: 'v0.11.1'
+          path: 'libavif-src'
+          fetch-depth: 1
+      - name: Manually build and install libavif
         run: |
-          git clone --branch v0.11.1 --depth 1 https://github.com/AOMediaCodec/libavif.git
-          cd libavif
+          cd libavif-src
           cmake -B build -G Ninja \
-          -DAVIF_CODEC_AOM=ON \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DBINARY_PACKAGE_BUILD=1 \
-          -DCMAKE_INSTALL_PREFIX=/usr
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBINARY_PACKAGE_BUILD=1 \
+            -DAVIF_CODEC_AOM=ON
+          ninja -C build
+          sudo ninja -C build install
+          cd ..
+      - name: Checkout libheif source
+        uses: actions/checkout@v4
+        with:
+          repository: 'strukturag/libheif'
+          ref: 'v1.17.5'
+          path: 'libheif-src'
+          fetch-depth: 1
+      # We only needs libheif to handle HEIC and AVIF, so keep minimal
+      # dependencies for it, which are libde265 and x265 for HEIC and aom for
+      # AVIF.
+      - name: Manually build and install libheif
+        run: |
+          cd libheif-src
+          cmake -B build -G Ninja \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DWITH_LIBDE265=ON \
+            -DWITH_X265=ON \
+            -DWITH_AOM_ENCODER=ON \
+            -DWITH_AOM_DECODER=ON
+          ninja -C build
           sudo ninja -C build install
           cd ..
       - name: Update lensfun data for root
@@ -194,7 +227,7 @@ jobs:
     needs: Win64
     steps:
       - name: Checkout ansel source
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 1
           submodules: false

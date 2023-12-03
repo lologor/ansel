@@ -1656,22 +1656,28 @@ void dt_iop_commit_params(dt_iop_module_t *module, dt_iop_params_t *params,
   // 2. compute the hash
   /* construct module params data for hash calc */
   int length = module->params_size;
-  if(module->flags() & IOP_FLAGS_SUPPORTS_BLENDING) length += sizeof(dt_develop_blend_params_t);
-  dt_masks_form_t *grp = dt_masks_get_from_id(darktable.develop, blendop_params->mask_id);
-  length += dt_masks_group_get_hash_buffer_length(grp);
+  dt_masks_form_t *grp = NULL;
+  if(module->flags() & IOP_FLAGS_SUPPORTS_BLENDING)
+  {
+    length += sizeof(dt_develop_blend_params_t);
+    grp = dt_masks_get_from_id(darktable.develop, blendop_params->mask_id);
+    length += dt_masks_group_get_hash_buffer_length(grp);
+  }
 
   char *str = malloc(length);
   memcpy(str, module->params, module->params_size);
   int pos = module->params_size;
-  /* if module supports blend op add blend params into account */
+
+  /* if module supports blend op */
   if(module->flags() & IOP_FLAGS_SUPPORTS_BLENDING)
   {
+    /* add blend params into account */
     memcpy(str + module->params_size, blendop_params, sizeof(dt_develop_blend_params_t));
     pos += sizeof(dt_develop_blend_params_t);
-  }
 
-  /* and we add masks */
-  dt_masks_group_get_hash_buffer(grp, str + pos);
+    /* and we add masks */
+    if(grp) dt_masks_group_get_hash_buffer(grp, str + pos);
+  }
 
   // Get the hash
   piece->hash = piece->global_hash = dt_hash(5381, str, length);
