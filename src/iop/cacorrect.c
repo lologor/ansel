@@ -280,7 +280,6 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const 
   const uint32_t filters = piece->pipe->dsc.filters;
 
   const gboolean valid = MAX(width, height) >= CA_SIZE_MINIMUM;
-  const gboolean run_fast = (piece->pipe->type & DT_DEV_PIXELPIPE_FAST) == DT_DEV_PIXELPIPE_FAST;
 
   dt_iop_cacorrect_data_t     *d = (dt_iop_cacorrect_data_t *)piece->data;
 
@@ -296,7 +295,7 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const 
 
   dt_iop_image_copy_by_size(out, in2, width, height, 1);
 
-  if(!valid || run_fast) return;
+  if(!valid) return;
 
   const float *const in = out;
 

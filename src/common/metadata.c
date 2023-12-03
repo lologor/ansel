@@ -767,22 +767,22 @@ void dt_metadata_set_list_id(const GList *img, const GList *metadata, const gboo
   }
 }
 
-gboolean dt_metadata_already_imported(const char *filename, const char *datetime)
+int dt_metadata_already_imported(const char *filename, const char *datetime)
 {
   if(!filename || !datetime)
     return FALSE;
   char *id = g_strconcat(filename, "-", datetime, NULL);
   sqlite3_stmt *stmt;
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db),
-                              "SELECT COUNT(*) FROM main.meta_data WHERE value=?1",
+                              "SELECT id FROM main.meta_data WHERE value=?1",
                               -1, &stmt, NULL);
   DT_DEBUG_SQLITE3_BIND_TEXT(stmt, 1, id, -1, SQLITE_TRANSIENT);
-  gboolean res = FALSE;
-  if(sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_int(stmt, 0) != 0)
-    res = TRUE;
+  int imgid = -1;
+  if(sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_int(stmt, 0) > -1)
+    imgid = sqlite3_column_int(stmt, 0);
   sqlite3_finalize(stmt);
   g_free(id);
-  return res;
+  return imgid;
 }
 
 // clang-format off

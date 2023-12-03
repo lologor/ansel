@@ -477,7 +477,6 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const 
   roo.x = roo.y = 0;
   // roi_out->scale = global scale: (iscale == 1.0, always when demosaic is on)
   const gboolean info = ((darktable.unmuted & (DT_DEBUG_DEMOSAIC | DT_DEBUG_PERF)) && (piece->pipe->type == DT_DEV_PIXELPIPE_FULL));
-  const gboolean run_fast = (piece->pipe->type & DT_DEV_PIXELPIPE_FAST) == DT_DEV_PIXELPIPE_FAST;
 
   const uint8_t(*const xtrans)[6] = (const uint8_t(*const)[6])piece->pipe->dsc.xtrans;
 
@@ -627,7 +626,7 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const 
 
     dt_dev_write_rawdetail_mask(piece, tmp, roi_in, DT_DEV_DETAIL_MASK_DEMOSAIC);
 
-    if((demosaicing_method & DEMOSAIC_DUAL) && !run_fast)
+    if((demosaicing_method & DEMOSAIC_DUAL))
     {
       dual_demosaic(piece, tmp, pixels, &roo, &roi, piece->pipe->dsc.filters, xtrans, showmask, data->dual_thrs);
     }

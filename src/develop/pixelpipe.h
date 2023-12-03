@@ -34,7 +34,6 @@ typedef enum dt_dev_pixelpipe_type_t
   DT_DEV_PIXELPIPE_PREVIEW2  = 1 << 4,
   DT_DEV_PIXELPIPE_ANY       = DT_DEV_PIXELPIPE_EXPORT | DT_DEV_PIXELPIPE_FULL | DT_DEV_PIXELPIPE_PREVIEW
                                | DT_DEV_PIXELPIPE_THUMBNAIL | DT_DEV_PIXELPIPE_PREVIEW2,
-  DT_DEV_PIXELPIPE_FAST      = 1 << 8
 } dt_dev_pixelpipe_type_t;
 
 /** when to collect histogram */
@@ -81,4 +80,3 @@ const char *dt_pixelpipe_name(dt_dev_pixelpipe_type_t pipe);
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
 // clang-format on
-

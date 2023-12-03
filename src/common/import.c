@@ -24,6 +24,8 @@
 #include "common/debug.h"
 #include "common/exif.h"
 #include "common/import.h"
+#include "common/image.h"
+#include "common/image_cache.h"
 #include "common/metadata.h"
 #include "common/datetime.h"
 #include "common/selection.h"
@@ -50,8 +52,10 @@
 #include <librsvg/rsvg-cairo.h>
 #endif
 
+static GSList *_get_subfolder(GFile *folder);
 static void _do_select_all(dt_lib_import_t *d);
 static void _do_select_none(dt_lib_import_t *d);
+static void _do_select_new(dt_lib_import_t *d);
 
 static GdkPixbuf *_import_get_thumbnail(const gchar *filename, const int width, const int height)
 {
@@ -131,6 +135,12 @@ static void _do_select_none_clicked(GtkWidget *widget, dt_lib_import_t *d)
 {
   _do_select_none(d);
 }
+
+static void _do_select_new_clicked(GtkWidget *widget, dt_lib_import_t *d)
+{
+  _do_select_new(d);
+}
+
 
 static void _resize_dialog(GtkWidget *widget)
 {
@@ -224,11 +234,29 @@ static GtkWidget * _attach_grid_separator(GtkWidget *grid, const int row, const 
   return w;
 }
 
-static gboolean _is_in_library(gchar *folder, char *filename)
+static int _is_in_library_by_path(const gchar *folder, const char *filename)
 {
   int32_t filmroll_id = dt_film_get_id(folder);
   int32_t image_id = dt_image_get_id(filmroll_id, filename);
-  return filmroll_id != -1 && image_id != 1;
+  if(filmroll_id > -1 && image_id > -1)
+    return image_id;
+  else
+    return -1;
+}
+
+static int _is_in_library_by_metadata(GFile *file)
+{
+  GFileInfo *info = g_file_query_info(file,
+                            G_FILE_ATTRIBUTE_STANDARD_NAME ","
+                            G_FILE_ATTRIBUTE_TIME_MODIFIED,
+                            G_FILE_QUERY_INFO_NONE, NULL, NULL);
+
+  const guint64 datetime = g_file_info_get_attribute_uint64(info, G_FILE_ATTRIBUTE_TIME_MODIFIED);
+  char dtid[DT_DATETIME_EXIF_LENGTH];
+  dt_datetime_unix_to_exif(dtid, sizeof(dtid), (const time_t *)&datetime);
+  const int res = dt_metadata_already_imported(g_file_info_get_name(info), dtid);
+  g_object_unref(info);
+  return res;
 }
 
 static void
@@ -244,11 +272,6 @@ update_preview_cb (GtkFileChooser *file_chooser, gpointer userdata)
   gtk_widget_show_all(d->preview);
   if(pixbuf) g_object_unref(pixbuf);
 
-  /* Do we already have this picture in library ? */
-  gchar *folder = gtk_file_chooser_get_current_folder(file_chooser);
-  gboolean is_in_lib = _is_in_library(folder, filename);
-  g_free(folder);
-
   // Reset everything
   gtk_label_set_text(GTK_LABEL(d->exif_info[EXIF_DATETIME_FIELD]), "");
   gtk_label_set_text(GTK_LABEL(d->exif_info[EXIF_MODEL_FIELD]), "");
@@ -257,25 +280,53 @@ update_preview_cb (GtkFileChooser *file_chooser, gpointer userdata)
   gtk_label_set_text(GTK_LABEL(d->exif_info[EXIF_FOCAL_LENS_FIELD]), "");
   gtk_label_set_text(GTK_LABEL(d->exif_info[EXIF_EXPOSURE_FIELD]), "");
   gtk_label_set_text(GTK_LABEL(d->exif_info[EXIF_INLIB_FIELD]), _("No"));
+  gtk_label_set_text(GTK_LABEL(d->exif_info[EXIF_PATH_FIELD]), "");
 
-  /* Get EXIF */
-  if(have_file)
+  if(!have_file) return; // Nothing more we can do
+
+  /* Do we already have this picture in library ? */
+  gchar *folder = gtk_file_chooser_get_current_folder(file_chooser);
+  const int is_path_in_lib = _is_in_library_by_path(folder, filename);
+  const int is_metadata_in_lib = _is_in_library_by_metadata(gtk_file_chooser_get_file(file_chooser));
+  const gboolean is_in_lib = (is_path_in_lib > -1) || (is_metadata_in_lib > -1);
+  g_free(folder);
+
+  /* If alread imported, find out where */
+  int imgid = -1;
+  if(is_path_in_lib > -1)
+    imgid = is_path_in_lib;
+  else if(is_metadata_in_lib > -1)
+    imgid = is_metadata_in_lib;
+
+  char path[512];
+  if(imgid > -1)
   {
-    dt_image_t img = { 0 };
-    if(!dt_exif_read(&img, filename))
+    const dt_image_t *img = dt_image_cache_get(darktable.image_cache, imgid, 'r');
+    if(img)
     {
-      char datetime[200];
-      const gboolean valid = dt_datetime_img_to_local(datetime, sizeof(datetime), &img, FALSE);
-      const gchar *exposure_field = g_strdup_printf("%.0f ISO – f/%.1f – %s", img.exif_iso, img.exif_aperture,
-                                                    dt_util_format_exposure(img.exif_exposure));
-      gtk_label_set_text(GTK_LABEL(d->exif_info[EXIF_DATETIME_FIELD]), (valid) ? g_strdup(datetime) : _("N/A"));
-      gtk_label_set_text(GTK_LABEL(d->exif_info[EXIF_MODEL_FIELD]), g_strdup(img.exif_model));
-      gtk_label_set_text(GTK_LABEL(d->exif_info[EXIF_MAKER_FIELD]), g_strdup(img.exif_maker));
-      gtk_label_set_text(GTK_LABEL(d->exif_info[EXIF_LENS_FIELD]), g_strdup(img.exif_lens));
-      gtk_label_set_text(GTK_LABEL(d->exif_info[EXIF_FOCAL_LENS_FIELD]), g_strdup_printf("%0.f mm", img.exif_focal_length));
-      gtk_label_set_text(GTK_LABEL(d->exif_info[EXIF_EXPOSURE_FIELD]), exposure_field);
-      gtk_label_set_text(GTK_LABEL(d->exif_info[EXIF_INLIB_FIELD]), (is_in_lib) ? _("Yes") : _("No"));
+      dt_image_film_roll_directory(img, path, sizeof(path));
+      dt_image_cache_read_release(darktable.image_cache, img);
     }
+  }
+
+  /* Get EXIF info */
+  dt_image_t img = { 0 };
+  if(!dt_exif_read(&img, filename))
+  {
+    char datetime[200];
+    const gboolean valid = dt_datetime_img_to_local(datetime, sizeof(datetime), &img, FALSE);
+    const gchar *exposure_field = g_strdup_printf("%.0f ISO – f/%.1f – %s", img.exif_iso, img.exif_aperture,
+                                                  dt_util_format_exposure(img.exif_exposure));
+    gtk_label_set_text(GTK_LABEL(d->exif_info[EXIF_DATETIME_FIELD]), (valid) ? g_strdup(datetime) : _("N/A"));
+    gtk_label_set_text(GTK_LABEL(d->exif_info[EXIF_MODEL_FIELD]), g_strdup(img.exif_model));
+    gtk_label_set_text(GTK_LABEL(d->exif_info[EXIF_MAKER_FIELD]), g_strdup(img.exif_maker));
+    gtk_label_set_text(GTK_LABEL(d->exif_info[EXIF_LENS_FIELD]), g_strdup(img.exif_lens));
+    gtk_label_set_text(GTK_LABEL(d->exif_info[EXIF_FOCAL_LENS_FIELD]), g_strdup_printf("%0.f mm", img.exif_focal_length));
+    gtk_label_set_text(GTK_LABEL(d->exif_info[EXIF_EXPOSURE_FIELD]), exposure_field);
+    gtk_label_set_text(GTK_LABEL(d->exif_info[EXIF_INLIB_FIELD]), (is_in_lib) ? g_strdup_printf(_("Yes (ID %i), in"), imgid) : _("No"));
+
+    if(is_in_lib)
+      gtk_label_set_text(GTK_LABEL(d->exif_info[EXIF_PATH_FIELD]), g_strdup_printf(_("%s"), path));
   }
 
   g_free(filename);
@@ -394,6 +445,7 @@ static void _import_from_dialog_new(dt_lib_import_t *d)
   // File browser
   d->file_chooser = gtk_file_chooser_widget_new(GTK_FILE_CHOOSER_ACTION_OPEN);
   gtk_file_chooser_set_select_multiple(GTK_FILE_CHOOSER(d->file_chooser), TRUE);
+  gtk_file_chooser_set_use_preview_label(GTK_FILE_CHOOSER(d->file_chooser), FALSE);
   gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(d->file_chooser),
                                       dt_conf_get_string("ui_last/import_last_directory"));
   gtk_box_pack_start(GTK_BOX(rbox), d->file_chooser, TRUE, TRUE, 0);
@@ -414,7 +466,16 @@ static void _import_from_dialog_new(dt_lib_import_t *d)
   gtk_box_pack_start(GTK_BOX(toolbox), select_none, FALSE, FALSE, 0);
   g_signal_connect(select_none, "clicked", G_CALLBACK(_do_select_none_clicked), d);
 
-  GtkWidget *copy = gtk_check_button_new_with_label(_("Duplicate files"));
+  GtkWidget *select_new = gtk_button_new_with_label(_("Select new"));
+  gtk_box_pack_start(GTK_BOX(toolbox), select_new, FALSE, FALSE, 0);
+  g_signal_connect(select_new, "clicked", G_CALLBACK(_do_select_new_clicked), d);
+  gtk_widget_set_tooltip_text(select_new,
+                              _("Selecting new files targets pictures that have never been added to the library. "
+                                "The lookup is done by searching for the original filename and date/time. "
+                                "It can detect files existing at another path, under a different name. "
+                                "False-positive can arise if two pictures have been taken at the same time with the same name."));
+
+  GtkWidget *copy = gtk_check_button_new_with_label(_("Copy files to a new destination"));
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(copy), dt_conf_get_bool("ui_last/import_copy"));
   g_signal_connect(G_OBJECT(copy), "toggled", G_CALLBACK(_copy_toggled_callback), (gpointer)grid);
 
@@ -424,6 +485,7 @@ static void _import_from_dialog_new(dt_lib_import_t *d)
         "and you want to duplicate them on a permanent storage.\n\n"
         "You will be able to rename them in batch using the patterns and variables below."));
   gtk_box_pack_start(GTK_BOX(toolbox), GTK_WIDGET(help_box_copy), FALSE, FALSE, 0);
+  gtk_widget_set_name(GTK_WIDGET(help_box_copy), "import-help-box-copy");
 
   gtk_file_chooser_set_extra_widget(GTK_FILE_CHOOSER(d->file_chooser), toolbox);
 
@@ -446,21 +508,10 @@ static void _import_from_dialog_new(dt_lib_import_t *d)
   _attach_grid_separator(   d->exif, 6, 2);
   // exposure trifecta
   _attach_grid_separator(   d->exif, 8, 2);
-  _attach_aligned_grid_item(d->exif, 9, 0, _("Imported :"), GTK_ALIGN_END, FALSE, FALSE);
 
-  d->exif_info[EXIF_DATETIME_FIELD] = _attach_aligned_grid_item(d->exif, 0, 1, "", GTK_ALIGN_START, TRUE, FALSE);
-  d->exif_info[EXIF_MODEL_FIELD] = _attach_aligned_grid_item(d->exif, 2, 1, "", GTK_ALIGN_START, TRUE, FALSE);
-  d->exif_info[EXIF_MAKER_FIELD] = _attach_aligned_grid_item(d->exif, 3, 1, "", GTK_ALIGN_START, TRUE, FALSE);
-  d->exif_info[EXIF_LENS_FIELD] = _attach_aligned_grid_item(d->exif, 4, 1, "", GTK_ALIGN_START, TRUE, FALSE);
-  d->exif_info[EXIF_FOCAL_LENS_FIELD] = _attach_aligned_grid_item(d->exif, 5, 1, "", GTK_ALIGN_START, TRUE, FALSE);
-  d->exif_info[EXIF_EXPOSURE_FIELD] = _attach_aligned_grid_item(d->exif, 7, 0, "", GTK_ALIGN_CENTER, TRUE, TRUE);
-
-  // 3. Help button along "in library" field and its popover
-  d->exif_info[EXIF_INLIB_FIELD] = gtk_label_new("");
-  gtk_widget_set_halign(d->exif_info[EXIF_INLIB_FIELD], GTK_ALIGN_START);
-
+  GtkWidget *imported_label = gtk_label_new(_("Imported"));
   GtkBox *help_box_inlib = attach_help_popover(
-      d->exif_info[EXIF_INLIB_FIELD],
+      imported_label,
       _("Images already in the library will not be imported again, selected or not. "
         "Remove them from the library first, or use the menu "
         "`Run` → `Resynchronize library and XMP` to update the local database from distant XMP.\n\n"
@@ -471,10 +522,20 @@ static void _import_from_dialog_new(dt_lib_import_t *d)
         "If an XMP file is present alongside images, it will be imported as well, "
         "including the metadata and settings stored in it. If it is not what you want, "
         "you can reset metadata in the lighttable."));
+  gtk_widget_set_halign(imported_label, GTK_ALIGN_END);
+  gtk_grid_attach(GTK_GRID(d->exif), GTK_WIDGET(help_box_inlib), 0, EXIF_INLIB_FIELD, 1, 1);
+  //_attach_aligned_grid_item(d->exif, 9, 0, _("Imported :"), GTK_ALIGN_END, FALSE, FALSE);
 
-  gtk_grid_attach(GTK_GRID(d->exif), GTK_WIDGET(help_box_inlib), 1, EXIF_INLIB_FIELD, 1, 1);
+  d->exif_info[EXIF_DATETIME_FIELD] = _attach_aligned_grid_item(d->exif, 0, 1, "", GTK_ALIGN_START, TRUE, FALSE);
+  d->exif_info[EXIF_MODEL_FIELD] = _attach_aligned_grid_item(d->exif, 2, 1, "", GTK_ALIGN_START, TRUE, FALSE);
+  d->exif_info[EXIF_MAKER_FIELD] = _attach_aligned_grid_item(d->exif, 3, 1, "", GTK_ALIGN_START, TRUE, FALSE);
+  d->exif_info[EXIF_LENS_FIELD] = _attach_aligned_grid_item(d->exif, 4, 1, "", GTK_ALIGN_START, TRUE, FALSE);
+  d->exif_info[EXIF_FOCAL_LENS_FIELD] = _attach_aligned_grid_item(d->exif, 5, 1, "", GTK_ALIGN_START, TRUE, FALSE);
+  d->exif_info[EXIF_EXPOSURE_FIELD] = _attach_aligned_grid_item(d->exif, 7, 0, "", GTK_ALIGN_CENTER, TRUE, TRUE);
+  d->exif_info[EXIF_INLIB_FIELD] = _attach_aligned_grid_item(d->exif, 9, 1, "", GTK_ALIGN_START, FALSE, TRUE);
+  d->exif_info[EXIF_PATH_FIELD] = _attach_aligned_grid_item(d->exif, 10, 0, "", GTK_ALIGN_START, FALSE, TRUE);
+
   gtk_box_pack_start(GTK_BOX(preview_box), d->exif, TRUE, TRUE, 0);
-
   gtk_widget_show_all(d->exif);
 
   gtk_file_chooser_set_preview_widget(GTK_FILE_CHOOSER(d->file_chooser), preview_box);
@@ -577,6 +638,46 @@ static void _do_select_none(dt_lib_import_t *d)
 {
   gtk_file_chooser_unselect_all(GTK_FILE_CHOOSER(d->file_chooser));
 }
+
+static void _do_select_new(dt_lib_import_t *d)
+{
+  // Twisted Gtk doesn't let us select multiple files.
+  // We need to select all then unselect what we don't want.
+  gtk_file_chooser_select_all(GTK_FILE_CHOOSER(d->file_chooser));
+
+  gchar *folder = gtk_file_chooser_get_current_folder(GTK_FILE_CHOOSER(d->file_chooser));
+  GFileEnumerator *files = g_file_enumerate_children(
+      g_file_new_for_path(folder), G_FILE_ATTRIBUTE_STANDARD_NAME "," G_FILE_ATTRIBUTE_STANDARD_TYPE,
+      G_FILE_QUERY_INFO_NONE, NULL, NULL);
+
+  // Get the file filter in use
+  GtkFileFilter *filter = gtk_file_chooser_get_filter(GTK_FILE_CHOOSER(d->file_chooser));
+
+  GFile *file = NULL;
+  while(g_file_enumerator_iterate(files, NULL, &file, NULL, NULL))
+  {
+    // g_file_enumerator_iterate returns FALSE only on errors, not on end of enumeration.
+    // We need an ugly break here else infinite loop.
+    if(!file) break;
+
+    GtkFileFilterInfo filter_info = { gtk_file_filter_get_needed(filter),
+                                      g_file_get_parse_name(file),
+                                      g_file_get_uri(file),
+                                      g_file_get_parse_name(file), NULL };
+
+    // We need to act only on files passing the file filter, aka being currently displayed on screen.
+    // Unselecting files not displayed in the current list freezes the UI and introduces oddities.
+    if(gtk_file_filter_filter(filter, &filter_info)
+       && !(g_file_test(g_file_get_path(file), G_FILE_TEST_IS_REGULAR)
+            && _is_in_library_by_metadata(file) == -1))
+    {
+      gtk_file_chooser_unselect_file(GTK_FILE_CHOOSER(d->file_chooser), file);
+    }
+  }
+  g_object_unref(files);
+  g_free(folder);
+}
+
 
 static void _import_set_collection(const char *dirname)
 {
@@ -685,16 +786,14 @@ static void _import_from_dialog_run(dt_lib_import_t *d)
     if(!duplicate) _import_set_collection(dt_conf_get_string("ui_last/import_last_directory"));
     // else : collection set by import job.
 
+    dt_view_filter_reset(darktable.view_manager, TRUE);
+
     const int imgid = dt_conf_get_int("ui_last/import_last_image");
     if(num_elem == 1 && imgid != -1)
     {
       dt_control_set_mouse_over_id(imgid);
       dt_selection_select_single(darktable.selection, imgid);
       dt_ctl_switch_mode_to("darkroom");
-    }
-    else
-    {
-      dt_view_filter_reset(darktable.view_manager, TRUE);
     }
   }
   else

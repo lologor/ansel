@@ -1157,6 +1157,7 @@ void gui_init(struct dt_iop_module_t *self)
   gtk_widget_set_tooltip_text(g->aspect_presets, _("set the aspect ratio\n"
                                                    "the list is sorted: from most square to least square\n"
                                                    "to enter custom aspect ratio open the combobox and type ratio in x:y or decimal format"));
+  dt_bauhaus_widget_set_quad_toggle(g->aspect_presets, 1);
   dt_bauhaus_widget_set_quad_paint(g->aspect_presets, dtgtk_cairo_paint_aspectflip, 0, NULL);
   g_signal_connect(G_OBJECT(g->aspect_presets), "quad-pressed", G_CALLBACK(_event_aspect_flip), self);
   gtk_box_pack_start(GTK_BOX(box_enabled), g->aspect_presets, TRUE, TRUE, 0);

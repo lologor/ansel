@@ -22,6 +22,7 @@
 #include "common/opencl.h"
 #include "common/iop_order.h"
 #include "control/control.h"
+#include "control/conf.h"
 #include "control/signal.h"
 #include "develop/blend.h"
 #include "develop/format.h"
@@ -68,31 +69,21 @@ static void get_output_format(dt_iop_module_t *module, dt_dev_pixelpipe_t *pipe,
 
 static char *_pipe_type_to_str(int pipe_type)
 {
-  const gboolean fast = (pipe_type & DT_DEV_PIXELPIPE_FAST) == DT_DEV_PIXELPIPE_FAST;
   char *r = NULL;
 
   switch(pipe_type & DT_DEV_PIXELPIPE_ANY)
   {
     case DT_DEV_PIXELPIPE_PREVIEW:
-      if(fast)
-        r = "preview/fast";
-      else
-        r = "preview";
+      r = "preview";
       break;
     case DT_DEV_PIXELPIPE_FULL:
       r = "full";
       break;
     case DT_DEV_PIXELPIPE_THUMBNAIL:
-      if(fast)
-        r = "thumbnail/fast";
-      else
-        r = "thumbnail";
+      r = "thumbnail";
       break;
     case DT_DEV_PIXELPIPE_EXPORT:
-      if(fast)
-        r = "export/fast";
-      else
-        r = "export";
+      r = "export";
       break;
     default:
       r = "unknown";
@@ -127,7 +118,8 @@ int dt_dev_pixelpipe_init_dummy(dt_dev_pixelpipe_t *pipe, int32_t width, int32_t
 int dt_dev_pixelpipe_init_preview(dt_dev_pixelpipe_t *pipe)
 {
   // don't know which buffer size we're going to need, set to 0 (will be alloced on demand)
-  const int res = dt_dev_pixelpipe_init_cached(pipe, 0, 64);
+  int32_t cachelines = MAX(dt_conf_get_int("cachelines"), 8);
+  const int res = dt_dev_pixelpipe_init_cached(pipe, 0, cachelines);
   pipe->type = DT_DEV_PIXELPIPE_PREVIEW;
   return res;
 }
@@ -135,7 +127,8 @@ int dt_dev_pixelpipe_init_preview(dt_dev_pixelpipe_t *pipe)
 int dt_dev_pixelpipe_init(dt_dev_pixelpipe_t *pipe)
 {
   // don't know which buffer size we're going to need, set to 0 (will be alloced on demand)
-  const int res = dt_dev_pixelpipe_init_cached(pipe, 0, 64);
+  int32_t cachelines = MAX(dt_conf_get_int("cachelines"), 8);
+  const int res = dt_dev_pixelpipe_init_cached(pipe, 0, cachelines);
   pipe->type = DT_DEV_PIXELPIPE_FULL;
   return res;
 }
@@ -339,7 +332,7 @@ void dt_pixelpipe_get_global_hash(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev)
   */
 
   // bernstein hash (djb2)
-  uint64_t hash = 5381 ^ pipe->output_imgid;
+  uint64_t hash = dt_hash(5381, (const char *)&pipe->image.id, sizeof(int));
 
   for(GList *node = pipe->nodes; node; node = g_list_next(node))
   {
@@ -364,11 +357,19 @@ void dt_pixelpipe_get_global_hash(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev)
         }
         hash = dt_hash(hash, (const char *)&piece->module->request_histogram, sizeof(dt_dev_request_flags_t));
       }
+
       if(pipe->type & DT_DEV_PIXELPIPE_FULL)
       {
         // Full-preview-centric tweaks : mask display
         hash = dt_hash(hash, (const char *)&piece->module->request_mask_display, sizeof(int));
         hash = dt_hash(hash, (const char *)&piece->module->suppress_mask, sizeof(uint32_t));
+
+        if(dev->gui_module && dev->gui_module != piece->module)
+        {
+          // Crop and perspective need a full ROI to set-up bounds in GUI, but only temporarily
+          const int distort_tags = dev->gui_module->operation_tags_filter() & piece->module->operation_tags();
+          hash = dt_hash(hash, (const char *)&distort_tags, sizeof(int));
+        }
       }
 
       /*
@@ -501,7 +502,7 @@ void dt_dev_pixelpipe_change(dt_dev_pixelpipe_t *pipe, struct dt_develop_t *dev)
 
   dt_pthread_mutex_lock(&dev->history_mutex);
 
-  dt_print(DT_DEBUG_PARAMS, "[pixelpipe] pipeline state changing for pipe %i, flag %i\n", pipe->type, pipe->changed);
+  dt_print(DT_DEBUG_DEV, "[pixelpipe] pipeline state changing for pipe %i, flag %i\n", pipe->type, pipe->changed);
 
   /*
   * Those cases seem mutually-exclusive but are not.
@@ -1122,7 +1123,6 @@ static int pixelpipe_process_on_CPU(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev,
 static uint64_t _default_pipe_hash(dt_dev_pixelpipe_t *pipe)
 {
   uint64_t hash = dt_hash(5381, (const char *)&pipe->image.id, sizeof(uint32_t));
-  hash += (pipe->type & DT_DEV_PIXELPIPE_FAST);
   return hash;
 }
 
@@ -1139,11 +1139,18 @@ static uint64_t _node_hash(dt_dev_pixelpipe_t *pipe, const dt_dev_pixelpipe_iop_
   // We need to amend our module global_hash to represent that.
   hash = dt_hash(hash, (const char *)roi_out, sizeof(dt_iop_roi_t));
 
-  // Again for fast pipe
-  const uint32_t fast_pipe = (pipe->type & DT_DEV_PIXELPIPE_FAST);
-  hash = dt_hash(hash, (const char *)&fast_pipe, sizeof(uint32_t));
-
   return hash;
+}
+
+static dt_dev_pixelpipe_iop_t *_last_node_in_pipe(dt_dev_pixelpipe_t *pipe)
+{
+  for(GList *node = g_list_last(pipe->nodes); node; node = g_list_previous(node))
+  {
+    dt_dev_pixelpipe_iop_t *piece = (dt_dev_pixelpipe_iop_t *)node->data;
+    if(piece->enabled) return piece;
+  }
+
+  return NULL;
 }
 
 // recursive helper for process:
@@ -1163,21 +1170,12 @@ static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *
   dt_iop_module_t *module = NULL;
   dt_dev_pixelpipe_iop_t *piece = NULL;
 
-  // if a module is active, check if this module allow a fast pipe run
-
-  if(darktable.develop && dev->gui_module && dev->gui_module->flags() & IOP_FLAGS_ALLOW_FAST_PIPE)
-    pipe->type |= DT_DEV_PIXELPIPE_FAST;
-  else
-    pipe->type &= ~DT_DEV_PIXELPIPE_FAST;
-
   if(modules)
   {
     module = (dt_iop_module_t *)modules->data;
     piece = (dt_dev_pixelpipe_iop_t *)pieces->data;
     // skip this module?
-    if(!piece->enabled
-       || (dev->gui_module && dev->gui_module != module
-           && dev->gui_module->operation_tags_filter() & module->operation_tags()))
+    if(!piece->enabled)
       return dt_dev_pixelpipe_process_rec(pipe, dev, output, cl_mem_output, out_format, &roi_in,
                                           g_list_previous(modules), g_list_previous(pieces), pos - 1);
   }
@@ -1202,8 +1200,10 @@ static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *
   if(cache_available)
   {
     if(module)
-      dt_print(DT_DEBUG_PARAMS, "[pixelpipe] dt_dev_pixelpipe_process_rec, cache available for pipe %i and module %s with hash %lu\n",
+      dt_print(DT_DEBUG_DEV, "[pixelpipe] dt_dev_pixelpipe_process_rec, cache available for pipe %i and module %s with hash %lu\n",
              pipe->type, module->op, hash);
+    else
+      dt_print(DT_DEBUG_DEV, "[pixelpipe] dt_dev_pixelpipe_process_rec has no module at pos %i\n", pos);
 
     (void)dt_dev_pixelpipe_cache_get(&(pipe->cache), hash, bufsize, output, out_format);
 
@@ -2334,8 +2334,7 @@ restart:
 
   // terminate
   dt_pthread_mutex_lock(&pipe->backbuf_mutex);
-  GList *last_node = g_list_last(pipe->nodes);
-  const dt_dev_pixelpipe_iop_t *last_module = (const dt_dev_pixelpipe_iop_t *)(last_node->data);
+  const dt_dev_pixelpipe_iop_t *last_module = _last_node_in_pipe(pipe);
   pipe->backbuf_hash = _node_hash(pipe, last_module, &roi, pos);
   pipe->backbuf = buf;
   pipe->backbuf_width = width;
@@ -2439,7 +2438,7 @@ float *dt_dev_get_raster_mask(const dt_dev_pixelpipe_t *pipe, const dt_iop_modul
           dt_dev_pixelpipe_iop_t *module = (dt_dev_pixelpipe_iop_t *)iter->data;
 
           if(module->enabled
-             && !(module->module->dev->gui_module && module->module->dev->gui_module != module->module
+             && !(module->module->dev->gui_module
                   && (module->module->dev->gui_module->operation_tags_filter() & module->module->operation_tags())))
           {
             if(module->module->distort_mask

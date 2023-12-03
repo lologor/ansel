@@ -283,7 +283,6 @@ int process_cl(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, cl_m
     if(err != CL_SUCCESS) goto error;
 
     piece->pipe->mask_display = DT_DEV_PIXELPIPE_DISPLAY_PASSTHRU;
-    piece->pipe->type |= DT_DEV_PIXELPIPE_FAST;
     dt_opencl_release_mem_object(dev_clips);
     return TRUE;
   }
@@ -1974,7 +1973,6 @@ void process(struct dt_iop_module_t *self, dt_dev_pixelpipe_iop_t *piece, const 
   {
     process_visualize(piece, ivoid, ovoid, roi_in, roi_out, filters, data);
     piece->pipe->mask_display = DT_DEV_PIXELPIPE_DISPLAY_PASSTHRU;
-    piece->pipe->type |= DT_DEV_PIXELPIPE_FAST;
     return;
   }
 

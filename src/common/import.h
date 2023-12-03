@@ -29,6 +29,7 @@ typedef enum exif_fields_t {
   EXIF_EXPOSURE_FIELD,
   EXIF_SEPARATOR3_FIELD,
   EXIF_INLIB_FIELD,
+  EXIF_PATH_FIELD,
   EXIF_LAST_FIELD
 } exif_fields_t;
 
