@@ -922,7 +922,7 @@ int dt_init(int argc, char *argv[], const gboolean init_gui, const gboolean load
   if(init_gui)
   {
     // I doubt that connecting to dbus for ansel-cli makes sense
-    darktable.dbus = dt_dbus_init();
+    darktable.dbus = NULL; //dt_dbus_init();
 
     // make sure that we have no stale global progress bar visible. thus it's run as early as possible
     dt_control_progress_init(darktable.control);
@@ -993,22 +993,25 @@ int dt_init(int argc, char *argv[], const gboolean init_gui, const gboolean load
       // send the images to the other instance via dbus
       fprintf(stderr, "trying to open the images in the running instance\n");
 
-      GDBusConnection *connection = NULL;
-      for(int i = 1; i < argc; i++)
+      if(darktable.dbus && darktable.dbus->dbus_connection)
       {
-        // make the filename absolute ...
-        if(argv[i] == NULL || *argv[i] == '\0') continue;
-        gchar *filename = dt_util_normalize_path(argv[i]);
-        if(filename == NULL) continue;
-        if(!connection) connection = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
-        // ... and send it to the running instance of darktable
-        image_loaded_elsewhere = g_dbus_connection_call_sync(connection, "org.darktable.service", "/darktable",
-                                                             "org.darktable.service.Remote", "Open",
-                                                             g_variant_new("(s)", filename), NULL,
-                                                             G_DBUS_CALL_FLAGS_NONE, -1, NULL, NULL) != NULL;
-        g_free(filename);
+        GDBusConnection *connection = NULL;
+        for(int i = 1; i < argc; i++)
+        {
+          // make the filename absolute ...
+          if(argv[i] == NULL || *argv[i] == '\0') continue;
+          gchar *filename = dt_util_normalize_path(argv[i]);
+          if(filename == NULL) continue;
+          if(!connection) connection = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, NULL);
+          // ... and send it to the running instance of darktable
+          image_loaded_elsewhere = g_dbus_connection_call_sync(connection, "org.darktable.service", "/darktable",
+                                                              "org.darktable.service.Remote", "Open",
+                                                              g_variant_new("(s)", filename), NULL,
+                                                              G_DBUS_CALL_FLAGS_NONE, -1, NULL, NULL) != NULL;
+          g_free(filename);
+        }
+        if(connection) g_object_unref(connection);
       }
-      if(connection) g_object_unref(connection);
 #endif
 
       if(!image_loaded_elsewhere) dt_database_show_error(darktable.db);
@@ -1384,7 +1387,7 @@ void dt_cleanup()
     gtk_widget_hide(dt_ui_main_window(darktable.gui->ui));
 
     dt_ctl_switch_mode_to("");
-    dt_dbus_destroy(darktable.dbus);
+    //dt_dbus_destroy(darktable.dbus);
 
     dt_control_shutdown(darktable.control);
 

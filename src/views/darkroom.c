@@ -339,31 +339,6 @@ void expose(
   pointerx -= tb;
   pointery -= tb;
 
-  if(dev->gui_synch && !dev->image_loading)
-  {
-    // synch module guis from gtk thread:
-    ++darktable.gui->reset;
-    for(const GList *modules = dev->iop; modules; modules = g_list_next(modules))
-    {
-      dt_iop_module_t *module = (dt_iop_module_t *)(modules->data);
-      dt_iop_gui_update(module);
-    }
-    --darktable.gui->reset;
-    dev->gui_synch = 0;
-  }
-
-  if(dev->image_status == DT_DEV_PIXELPIPE_DIRTY || dev->image_status == DT_DEV_PIXELPIPE_INVALID
-     || dev->pipe->input_timestamp < dev->preview_pipe->input_timestamp)
-  {
-    dt_dev_process_image(dev);
-  }
-
-  if(dev->preview_status == DT_DEV_PIXELPIPE_DIRTY || dev->preview_status == DT_DEV_PIXELPIPE_INVALID
-     || dev->pipe->input_timestamp > dev->preview_pipe->input_timestamp)
-  {
-    dt_dev_process_preview(dev);
-  }
-
   dt_pthread_mutex_t *mutex = NULL;
   int stride;
   // FIXME: these four dt_control_get_dev_*() calls each lock/unlock global_mutex -- consolidate this work
@@ -1011,6 +986,9 @@ static void _dev_change_image(dt_develop_t *dev, const int32_t imgid)
   dt_dev_modulegroups_set(dev, dt_conf_get_int("plugins/darkroom/groups"));
 
   dt_image_check_camera_missing_sample(&dev->image_storage);
+
+  dt_dev_invalidate_all(dev);
+  dt_dev_refresh_ui_images(dev);
 }
 
 static void _view_darkroom_filmstrip_activate_callback(gpointer instance, int32_t imgid, gpointer user_data)
@@ -1020,12 +998,16 @@ static void _view_darkroom_filmstrip_activate_callback(gpointer instance, int32_
     // switch images in darkroom mode:
     const dt_view_t *self = (dt_view_t *)user_data;
     dt_develop_t *dev = (dt_develop_t *)self->data;
-
     _dev_change_image(dev, imgid);
+
     // move filmstrip
     dt_thumbtable_set_offset_image(dt_ui_thumbtable(darktable.gui->ui), imgid, TRUE);
-    // force redraw
+
     dt_control_queue_redraw();
+
+    // ROI has changed, refresh
+    dt_dev_invalidate(dev);
+    dt_dev_refresh_ui_images(dev);
   }
 }
 
@@ -1126,9 +1108,11 @@ static void zoom_key_accel(dt_action_t *action)
       dt_control_set_dev_closeup(0);
   }
 
-  dt_dev_invalidate(dev);
   dt_control_queue_redraw_center();
   dt_control_navigation_redraw();
+
+  dt_dev_invalidate(dev);
+  dt_dev_refresh_ui_images(dev);
 }
 
 static void zoom_in_callback(dt_action_t *action)
@@ -1347,7 +1331,6 @@ static void _iso_12646_quickbutton_clicked(GtkWidget *w, gpointer user_data)
   dt_dev_configure(d, d->width, d->height);
 
   dt_ui_restore_panels(darktable.gui->ui);
-  dt_dev_reprocess_center(d);
 }
 
 /* overlay color */
@@ -1367,7 +1350,8 @@ static void _overexposed_quickbutton_clicked(GtkWidget *w, gpointer user_data)
 {
   dt_develop_t *d = (dt_develop_t *)user_data;
   d->overexposed.enabled = !d->overexposed.enabled;
-  dt_dev_reprocess_center(d);
+  dt_dev_invalidate(d);
+  dt_dev_refresh_ui_images(d);
 }
 
 static void colorscheme_callback(GtkWidget *combo, gpointer user_data)
@@ -1377,7 +1361,9 @@ static void colorscheme_callback(GtkWidget *combo, gpointer user_data)
   if(d->overexposed.enabled == FALSE)
     gtk_button_clicked(GTK_BUTTON(d->overexposed.button));
   else
-    dt_dev_reprocess_center(d);
+    dt_dev_invalidate(d);
+
+  dt_dev_refresh_ui_images(d);
 }
 
 static void lower_callback(GtkWidget *slider, gpointer user_data)
@@ -1387,7 +1373,9 @@ static void lower_callback(GtkWidget *slider, gpointer user_data)
   if(d->overexposed.enabled == FALSE)
     gtk_button_clicked(GTK_BUTTON(d->overexposed.button));
   else
-    dt_dev_reprocess_center(d);
+    dt_dev_invalidate(d);
+
+  dt_dev_refresh_ui_images(d);
 }
 
 static void upper_callback(GtkWidget *slider, gpointer user_data)
@@ -1397,7 +1385,9 @@ static void upper_callback(GtkWidget *slider, gpointer user_data)
   if(d->overexposed.enabled == FALSE)
     gtk_button_clicked(GTK_BUTTON(d->overexposed.button));
   else
-    dt_dev_reprocess_center(d);
+    dt_dev_invalidate(d);
+
+  dt_dev_refresh_ui_images(d);
 }
 
 static void mode_callback(GtkWidget *slider, gpointer user_data)
@@ -1407,7 +1397,9 @@ static void mode_callback(GtkWidget *slider, gpointer user_data)
   if(d->overexposed.enabled == FALSE)
     gtk_button_clicked(GTK_BUTTON(d->overexposed.button));
   else
-    dt_dev_reprocess_center(d);
+    dt_dev_invalidate(d);
+
+  dt_dev_refresh_ui_images(d);
 }
 
 /* rawoverexposed */
@@ -1415,7 +1407,8 @@ static void _rawoverexposed_quickbutton_clicked(GtkWidget *w, gpointer user_data
 {
   dt_develop_t *d = (dt_develop_t *)user_data;
   d->rawoverexposed.enabled = !d->rawoverexposed.enabled;
-  dt_dev_reprocess_center(d);
+  dt_dev_invalidate(d);
+  dt_dev_refresh_ui_images(d);
 }
 
 static void rawoverexposed_mode_callback(GtkWidget *combo, gpointer user_data)
@@ -1425,7 +1418,9 @@ static void rawoverexposed_mode_callback(GtkWidget *combo, gpointer user_data)
   if(d->rawoverexposed.enabled == FALSE)
     gtk_button_clicked(GTK_BUTTON(d->rawoverexposed.button));
   else
-    dt_dev_reprocess_center(d);
+    dt_dev_invalidate(d);
+
+  dt_dev_refresh_ui_images(d);
 }
 
 static void rawoverexposed_colorscheme_callback(GtkWidget *combo, gpointer user_data)
@@ -1435,7 +1430,9 @@ static void rawoverexposed_colorscheme_callback(GtkWidget *combo, gpointer user_
   if(d->rawoverexposed.enabled == FALSE)
     gtk_button_clicked(GTK_BUTTON(d->rawoverexposed.button));
   else
-    dt_dev_reprocess_center(d);
+    dt_dev_invalidate(d);
+
+  dt_dev_refresh_ui_images(d);
 }
 
 static void rawoverexposed_threshold_callback(GtkWidget *slider, gpointer user_data)
@@ -1445,7 +1442,9 @@ static void rawoverexposed_threshold_callback(GtkWidget *slider, gpointer user_d
   if(d->rawoverexposed.enabled == FALSE)
     gtk_button_clicked(GTK_BUTTON(d->rawoverexposed.button));
   else
-    dt_dev_reprocess_center(d);
+    dt_dev_invalidate(d);
+
+  dt_dev_refresh_ui_images(d);
 }
 
 /* softproof */
@@ -1459,7 +1458,8 @@ static void _softproof_quickbutton_clicked(GtkWidget *w, gpointer user_data)
 
   _update_softproof_gamut_checking(d);
 
-  dt_dev_reprocess_center(d);
+  dt_dev_invalidate(d);
+  dt_dev_refresh_ui_images(d);
 }
 
 /* gamut */
@@ -1473,7 +1473,8 @@ static void _gamut_quickbutton_clicked(GtkWidget *w, gpointer user_data)
 
   _update_softproof_gamut_checking(d);
 
-  dt_dev_reprocess_center(d);
+  dt_dev_invalidate(d);
+  dt_dev_refresh_ui_images(d);
 }
 
 /* set the gui state for both softproof and gamut checking */
@@ -1524,7 +1525,8 @@ end:
   if(profile_changed)
   {
     DT_DEBUG_CONTROL_SIGNAL_RAISE(darktable.signals, DT_SIGNAL_CONTROL_PROFILE_USER_CHANGED, DT_COLORSPACES_PROFILE_TYPE_SOFTPROOF);
-    dt_dev_reprocess_all(d);
+    dt_dev_invalidate_all(d);
+    dt_dev_refresh_ui_images(d);
   }
 }
 
@@ -1690,6 +1692,7 @@ static float _action_process_preview(gpointer target, dt_action_element_t elemen
         dt_dev_invalidate(darktable.develop);
         dt_control_queue_redraw_center();
         dt_control_navigation_redraw();
+        dt_dev_refresh_ui_images(darktable.develop);
       }
     }
     else
@@ -1723,6 +1726,7 @@ static float _action_process_preview(gpointer target, dt_action_element_t elemen
         gtk_widget_grab_focus(dt_ui_center(darktable.gui->ui));
         dt_dev_invalidate(darktable.develop);
         dt_control_queue_redraw_center();
+        dt_dev_refresh_ui_images(darktable.develop);
       }
     }
   }
@@ -1765,10 +1769,11 @@ static float _action_process_move(gpointer target, dt_action_element_t element, 
     dt_dev_check_zoom_bounds(dev, &zx, &zy, zoom, closeup, NULL, NULL);
     dt_control_set_dev_zoom_x(zx);
     dt_control_set_dev_zoom_y(zy);
-
-    dt_dev_invalidate(dev);
     dt_control_queue_redraw_center();
     dt_control_navigation_redraw();
+
+    dt_dev_invalidate(dev);
+    dt_dev_refresh_ui_images(dev);
   }
 
   return 0; // FIXME return position (%)
@@ -2691,6 +2696,7 @@ void enter(dt_view_t *self)
   dt_iop_color_picker_init();
 
   dt_image_check_camera_missing_sample(&dev->image_storage);
+  dt_dev_refresh_ui_images(dev);
 }
 
 void leave(dt_view_t *self)
@@ -2934,7 +2940,9 @@ void mouse_moved(dt_view_t *self, double x, double y, double pressure, int which
         dev->preview_status = DT_DEV_PIXELPIPE_DIRTY;
       }
     }
+    dt_dev_invalidate_preview(dev);
     dt_control_queue_redraw_center();
+    dt_dev_refresh_ui_images(dev);
     return;
   }
   x += offx;
@@ -2965,9 +2973,11 @@ void mouse_moved(dt_view_t *self, double x, double y, double pressure, int which
     dt_control_set_dev_zoom_y(zy);
     ctl->button_x = x - offx;
     ctl->button_y = y - offy;
-    dt_dev_invalidate(dev);
     dt_control_queue_redraw_center();
     dt_control_navigation_redraw();
+
+    dt_dev_invalidate(dev);
+    dt_dev_refresh_ui_images(dev);
   }
 }
 
@@ -2993,6 +3003,10 @@ int button_released(dt_view_t *self, double x, double y, int which, uint32_t sta
       dt_control_queue_redraw_center();
       dt_control_change_cursor(GDK_LEFT_PTR);
     }
+    dt_control_queue_redraw_center();
+    dt_control_navigation_redraw();
+    dt_dev_invalidate_preview(dev);
+    dt_dev_refresh_ui_images(dev);
     return 1;
   }
   // masks
@@ -3003,6 +3017,10 @@ int button_released(dt_view_t *self, double x, double y, int which, uint32_t sta
     handled = dev->gui_module->button_released(dev->gui_module, x, y, which, state);
   if(handled) return handled;
   if(which == 1) dt_control_change_cursor(GDK_LEFT_PTR);
+  dt_control_queue_redraw_center();
+  dt_control_navigation_redraw();
+  dt_dev_invalidate_preview(dev);
+  dt_dev_refresh_ui_images(dev);
   return 1;
 }
 
@@ -3211,9 +3229,7 @@ int button_pressed(dt_view_t *self, double x, double y, double pressure, int whi
     dt_control_set_dev_zoom(zoom);
     dt_control_set_dev_zoom_x(zoom_x);
     dt_control_set_dev_zoom_y(zoom_y);
-    dt_dev_invalidate(dev);
     dt_control_queue_redraw_center();
-    dt_control_navigation_redraw();
     return 1;
   }
   return 0;
@@ -3356,9 +3372,12 @@ void scrolled(dt_view_t *self, double x, double y, int up, int state)
   dt_control_set_dev_zoom(zoom);
   dt_control_set_dev_zoom_x(zoom_x);
   dt_control_set_dev_zoom_y(zoom_y);
-  dt_dev_invalidate(dev);
+
   dt_control_queue_redraw_center();
   dt_control_navigation_redraw();
+
+  dt_dev_invalidate(dev);
+  dt_dev_refresh_ui_images(dev);
 }
 
 static void change_slider_accel_precision(dt_action_t *action)

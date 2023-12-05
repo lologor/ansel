@@ -20,6 +20,7 @@
 #include "bauhaus/bauhaus.h"
 #include "common/collection.h"
 #include "common/darktable.h"
+#include "common/import_session.h"
 #include "common/file_location.h"
 #include "common/debug.h"
 #include "common/exif.h"
@@ -339,26 +340,97 @@ static void _update_directory(GtkWidget *file_chooser, dt_lib_import_t *d)
   dt_conf_set_string("ui_last/import_last_directory", path);
 }
 
-static void _copy_toggled_callback(GtkWidget *toggle, GtkGrid *grid)
+static void _set_help_string(dt_lib_import_t *d, gboolean copy)
 {
-  gboolean state = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(toggle));
-  dt_conf_set_bool("ui_last/import_copy", state);
-  gtk_widget_set_visible(GTK_WIDGET(grid), state);
+  if(copy)
+    gtk_label_set_markup(
+        GTK_LABEL(d->help_string),
+        _("<i>The files will be copied to the selected destination. You can rename them in batch below:</i>"));
+  else
+    gtk_label_set_markup(
+        GTK_LABEL(d->help_string),
+        _("<i>The files will stay at their original location</i>"));
 }
 
-static void _base_dir_changed(GtkFileChooserButton* self)
+static void _set_test_path(dt_lib_import_t *d)
+{
+  gchar *selected = gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(d->file_chooser));
+  if(!selected || !dt_supported_image(selected)) return;
+
+  /* Create a new fake session */
+  struct dt_import_session_t *session = dt_import_session_new();
+
+  dt_import_session_set_name(session, dt_conf_get_string("ui_last/import_jobcode"));
+
+  char datetime_override[DT_DATETIME_LENGTH] = { 0 };
+  const char *entry = gtk_entry_get_text(GTK_ENTRY(d->datetime));
+  if(entry[0] && !dt_datetime_entry_to_exif(datetime_override, sizeof(datetime_override), entry))
+    dt_import_session_set_time(session, datetime_override);
+
+  char *data = NULL;
+  gsize size = 0;
+  if(g_file_get_contents(selected, &data, &size, NULL))
+  {
+    char exif_time[DT_DATETIME_LENGTH];
+    dt_exif_get_datetime_taken((uint8_t *)data, size, exif_time);
+
+    if(!exif_time[0])
+    {
+      // if no exif datetime try file datetime
+      struct stat statbuf;
+      if(!stat(selected, &statbuf))
+        dt_datetime_unix_to_exif(exif_time, sizeof(exif_time), &statbuf.st_mtime);
+    }
+
+    if(exif_time[0])
+      dt_import_session_set_exif_time(session, exif_time);
+
+    dt_import_session_set_filename(session, g_path_get_basename(selected));
+
+    char *test_path = g_build_filename(
+      dt_import_session_path(session, FALSE),
+      dt_import_session_filename(session), NULL);
+
+    gtk_label_set_text(GTK_LABEL(d->test_path), g_strdup_printf(_("Result of the pattern : %s"), test_path));
+    g_free(test_path);
+  }
+  g_free(selected);
+  if(data) g_free(data);
+  free(session);
+
+}
+
+static void _selection_changed(GtkWidget *filechooser, dt_lib_import_t *d)
+{
+  _set_test_path(d);
+}
+
+static void _copy_toggled_callback(GtkWidget *combobox, dt_lib_import_t *d)
+{
+  gboolean state = gtk_combo_box_get_active(GTK_COMBO_BOX(combobox));
+  dt_conf_set_bool("ui_last/import_copy", state);
+  gtk_widget_set_visible(GTK_WIDGET(d->grid), state);
+  gtk_widget_set_visible(GTK_WIDGET(d->test_path), state);
+  _set_help_string(d, state);
+  _set_test_path(d);
+}
+
+static void _base_dir_changed(GtkFileChooserButton* self, dt_lib_import_t *d)
 {
   dt_conf_set_string("session/base_directory_pattern", gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(self)));
+  _set_test_path(d);
 }
 
-static void _project_dir_changed(GtkWidget *widget, gpointer data)
+static void _project_dir_changed(GtkWidget *widget, dt_lib_import_t *d)
 {
   dt_conf_set_string("session/sub_directory_pattern", gtk_entry_get_text(GTK_ENTRY(widget)));
+  _set_test_path(d);
 }
 
-static void _filename_changed(GtkWidget *widget, gpointer data)
+static void _filename_changed(GtkWidget *widget, dt_lib_import_t *d)
 {
   dt_conf_set_string("session/filename_pattern", gtk_entry_get_text(GTK_ENTRY(widget)));
+  _set_test_path(d);
 }
 
 static void _update_date(GtkCalendar *calendar, GtkWidget *entry)
@@ -400,6 +472,7 @@ static void _datetime_changed_callback(GtkEntry *entry, dt_lib_import_t *d)
     }
   }
   gtk_entry_set_icon_from_icon_name(entry, GTK_ENTRY_ICON_PRIMARY, NULL);
+  _set_test_path(d);
 }
 
 static void _file_activated(GtkFileChooser *chooser, GtkDialog *dialog)
@@ -413,7 +486,7 @@ static void _file_activated(GtkFileChooser *chooser, GtkDialog *dialog)
   }
 }
 
-static void _import_from_dialog_new(dt_lib_import_t *d)
+static void gui_init(dt_lib_import_t *d)
 {
   d->dialog = gtk_dialog_new_with_buttons
     ( _("Ansel — Open pictures"), NULL, GTK_DIALOG_MODAL,
@@ -434,12 +507,15 @@ static void _import_from_dialog_new(dt_lib_import_t *d)
   g_signal_connect(d->dialog, "check-resize", G_CALLBACK(_resize_dialog), NULL);
 
   /* Grid of options for copy/duplicate */
-  GtkGrid *grid = GTK_GRID(gtk_grid_new());
+  d->grid = gtk_grid_new();
+  GtkGrid *grid = GTK_GRID(d->grid);
   gtk_grid_set_column_spacing(grid, 0);
   gtk_grid_set_row_spacing(grid, 0);
+  gtk_grid_set_column_homogeneous(grid, FALSE);
+  gtk_grid_set_row_homogeneous(grid, FALSE);
 
-  /* RIGHT PANEL */
-  GtkWidget *rbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+  /* BOTTOM PANEL */
+  GtkWidget *rbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   gtk_box_pack_start(GTK_BOX(content), rbox, TRUE, TRUE, 0);
 
   // File browser
@@ -451,12 +527,14 @@ static void _import_from_dialog_new(dt_lib_import_t *d)
   gtk_box_pack_start(GTK_BOX(rbox), d->file_chooser, TRUE, TRUE, 0);
   g_signal_connect(G_OBJECT(d->file_chooser), "current-folder-changed", G_CALLBACK(_update_directory), NULL);
   g_signal_connect(G_OBJECT(d->file_chooser), "file-activated", G_CALLBACK(_file_activated), GTK_DIALOG(d->dialog));
+  g_signal_connect(G_OBJECT(d->file_chooser), "selection-changed", G_CALLBACK(_selection_changed), d);
 
   // file extension filters
   _file_filters(d->file_chooser);
 
   // File browser toolbox (extra widgets)
-  GtkWidget *toolbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 4);
+  GtkWidget *toolbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  gtk_widget_set_halign(toolbox, GTK_ALIGN_END);
 
   GtkWidget *select_all = gtk_button_new_with_label(_("Select all"));
   gtk_box_pack_start(GTK_BOX(toolbox), select_all, FALSE, FALSE, 0);
@@ -475,20 +553,9 @@ static void _import_from_dialog_new(dt_lib_import_t *d)
                                 "It can detect files existing at another path, under a different name. "
                                 "False-positive can arise if two pictures have been taken at the same time with the same name."));
 
-  GtkWidget *copy = gtk_check_button_new_with_label(_("Copy files to a new destination"));
-  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(copy), dt_conf_get_bool("ui_last/import_copy"));
-  g_signal_connect(G_OBJECT(copy), "toggled", G_CALLBACK(_copy_toggled_callback), (gpointer)grid);
-
-  GtkBox *help_box_copy = attach_help_popover(
-      copy,
-      _("Use this option if your images are stored on a temporary drive (memory card, USB flash drive) "
-        "and you want to duplicate them on a permanent storage.\n\n"
-        "You will be able to rename them in batch using the patterns and variables below."));
-  gtk_box_pack_start(GTK_BOX(toolbox), GTK_WIDGET(help_box_copy), FALSE, FALSE, 0);
-  gtk_widget_set_name(GTK_WIDGET(help_box_copy), "import-help-box-copy");
-
   gtk_file_chooser_set_extra_widget(GTK_FILE_CHOOSER(d->file_chooser), toolbox);
 
+  /* RIGHT PANEL */
   // File browser preview box
   // 1. Thumbnail
   GtkWidget *preview_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
@@ -541,6 +608,26 @@ static void _import_from_dialog_new(dt_lib_import_t *d)
   gtk_file_chooser_set_preview_widget(GTK_FILE_CHOOSER(d->file_chooser), preview_box);
   g_signal_connect(GTK_FILE_CHOOSER(d->file_chooser), "update-preview", G_CALLBACK(update_preview_cb), d);
 
+  /* BOTTOM PANEL */
+
+  GtkWidget *files = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  GtkWidget *file_handling = gtk_label_new("");
+  gtk_label_set_markup(GTK_LABEL(file_handling), _("<b>File handling</b>"));
+  gtk_box_pack_start(GTK_BOX(files), GTK_WIDGET(file_handling), FALSE, FALSE, 0);
+
+  GtkWidget *copy = gtk_combo_box_text_new();
+  gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(copy), NULL, _("Add to library"));
+  gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(copy), NULL, _("Copy to disk"));
+  gtk_combo_box_set_active(GTK_COMBO_BOX(copy), dt_conf_get_bool("ui_last/import_copy"));
+  gtk_box_pack_start(GTK_BOX(files), GTK_WIDGET(copy), FALSE, FALSE, 0);
+  g_signal_connect(G_OBJECT(copy), "changed", G_CALLBACK(_copy_toggled_callback), (gpointer)d);
+
+  d->help_string = gtk_label_new("");
+  _set_help_string(d, dt_conf_get_bool("ui_last/import_copy"));
+  gtk_box_pack_start(GTK_BOX(files), GTK_WIDGET(d->help_string), FALSE, FALSE, 0);
+
+  gtk_box_pack_start(GTK_BOX(rbox), GTK_WIDGET(files), FALSE, FALSE, 0);
+
   // Project date
   GtkWidget *calendar_label = gtk_label_new(_("Project date"));
   gtk_widget_set_halign(calendar_label, GTK_ALIGN_START);
@@ -578,7 +665,7 @@ static void _import_from_dialog_new(dt_lib_import_t *d)
   GtkWidget *base_dir
       = gtk_file_chooser_button_new(_("Select a base directory"), GTK_FILE_CHOOSER_ACTION_SELECT_FOLDER);
   gtk_file_chooser_set_current_folder(GTK_FILE_CHOOSER(base_dir), dt_conf_get_string("session/base_directory_pattern"));
-  g_signal_connect(G_OBJECT(base_dir), "file-set", G_CALLBACK(_base_dir_changed), NULL);
+  g_signal_connect(G_OBJECT(base_dir), "file-set", G_CALLBACK(_base_dir_changed), d);
   gtk_widget_set_hexpand(base_dir, TRUE);
 
   GtkWidget *sep1 = gtk_label_new("/");
@@ -622,7 +709,13 @@ static void _import_from_dialog_new(dt_lib_import_t *d)
   gtk_grid_attach(grid, sep2, 3, 4, 1, 1);
   gtk_grid_attach(grid, file, 4, 4, 1, 1);
 
-  gtk_box_pack_end(GTK_BOX(rbox), GTK_WIDGET(grid), FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(rbox), GTK_WIDGET(grid), FALSE, FALSE, 0);
+
+  d->test_path = gtk_label_new("");
+  gtk_box_pack_start(GTK_BOX(rbox), GTK_WIDGET(d->test_path), FALSE, FALSE, 0);
+  gtk_widget_set_halign(d->test_path, GTK_ALIGN_START);
+  _set_test_path(d);
+
   gtk_widget_show_all(d->dialog);
 
   // Duplication parameters visible only if the option is set
@@ -684,8 +777,8 @@ static void _import_set_collection(const char *dirname)
   if(dirname)
   {
     dt_conf_set_int("plugins/lighttable/collect/num_rules", 1);
-    dt_conf_set_int("plugins/lighttable/collect/item0", 0);
-    dt_conf_set_string("plugins/lighttable/collect/string0", g_strdup_printf("%s/%%", dirname));
+    dt_conf_set_int("plugins/lighttable/collect/item0", 1);
+    dt_conf_set_string("plugins/lighttable/collect/string0", g_strdup_printf("%s*", dirname));
     dt_collection_update_query(darktable.collection, DT_COLLECTION_CHANGE_NEW_QUERY, DT_COLLECTION_PROP_UNDEF,
                                NULL);
   }
@@ -805,7 +898,7 @@ static void _import_from_dialog_run(dt_lib_import_t *d)
 void dt_images_import()
 {
   dt_lib_import_t *d = malloc(sizeof(dt_lib_import_t));
-  _import_from_dialog_new(d);
+  gui_init(d);
   switch(gtk_dialog_run(GTK_DIALOG(d->dialog)))
   {
     case GTK_RESPONSE_ACCEPT:

@@ -263,6 +263,7 @@ static void _history_invalidate_cb(gpointer user_data, dt_undo_type_t type, dt_u
   dt_iop_module_t *module = (dt_iop_module_t *)user_data;
   dt_undo_history_t *hist = (dt_undo_history_t *)item;
   dt_dev_invalidate_history_module(hist->after_snapshot, module);
+  dt_dev_refresh_ui_images(darktable.develop);
 }
 
 static void _add_module_expander(GList *iop_list, dt_iop_module_t *module)
@@ -1181,6 +1182,8 @@ static gboolean _lib_history_button_clicked_callback(GtkWidget *widget, GdkEvent
 
   dt_iop_connect_accels_all();
   dt_dev_modulegroups_set(darktable.develop, dt_dev_modulegroups_get(darktable.develop));
+
+  dt_dev_refresh_ui_images(darktable.develop);
   return FALSE;
 }
 
@@ -1235,4 +1238,3 @@ void gui_reset(dt_lib_module_t *self)
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
 // clang-format on
-

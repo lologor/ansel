@@ -149,14 +149,12 @@ typedef struct dt_develop_t
   int32_t gui_attached; // != 0 if the gui should be notified of changes in hist stack and modules should be
                         // gui_init'ed.
   int32_t gui_leaving;  // set if everything is scheduled to shut down.
-  int32_t gui_synch;    // set by the render threads if gui_update should be called in the modules.
   int32_t focus_hash;   // determines whether to start a new history item or to merge down.
-  gboolean preview_loading, image_loading, history_updating, image_force_reload, first_load;
+  gboolean preview_loading, image_loading, history_updating, first_load;
   gboolean preview_input_changed;
 
   dt_dev_pixelpipe_status_t image_status, preview_status;
   int32_t image_invalid_cnt;
-  uint32_t timestamp;
   uint32_t average_delay;
   uint32_t preview_average_delay;
   struct dt_iop_module_t *gui_module; // this module claims gui expose/event callbacks.
@@ -329,6 +327,10 @@ void dt_dev_process_preview_job(dt_develop_t *dev);
 void dt_dev_process_image(dt_develop_t *dev);
 void dt_dev_process_preview(dt_develop_t *dev);
 
+// Lazy helpers that will update GUI pipelines (main image and small preview)
+// only when needed, and only the one(s) needed.
+void dt_dev_refresh_ui_images(dt_develop_t *dev);
+
 void dt_dev_load_image(dt_develop_t *dev, const uint32_t imgid);
 void dt_dev_reload_image(dt_develop_t *dev, const uint32_t imgid);
 /** checks if provided imgid is the image currently in develop */
@@ -349,7 +351,11 @@ void dt_dev_read_history(dt_develop_t *dev);
 void dt_dev_free_history_item(gpointer data);
 void dt_dev_invalidate_history_module(GList *list, struct dt_iop_module_t *module);
 
+// force a rebuild of the pipe, needed when a module order is changed for example
+void dt_dev_pixelpipe_rebuild(struct dt_develop_t *dev);
+
 void dt_dev_invalidate(dt_develop_t *dev);
+void dt_dev_invalidate_preview(dt_develop_t *dev);
 // also invalidates preview (which is unaffected by resize/zoom/pan)
 void dt_dev_invalidate_all(dt_develop_t *dev);
 void dt_dev_set_histogram(dt_develop_t *dev);

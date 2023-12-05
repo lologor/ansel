@@ -1538,7 +1538,8 @@ static gboolean rt_display_wavelet_scale_callback(GtkToggleButton *togglebutton,
   }
   dt_iop_gui_leave_critical_section(self);
 
-  dt_dev_reprocess_center(self->dev);
+  dt_dev_invalidate(self->dev);
+  dt_dev_refresh_ui_images(self->dev);
 
   gtk_toggle_button_set_active(togglebutton, g->display_wavelet_scale);
   return TRUE;

@@ -2523,15 +2523,6 @@ GtkWidget *dt_iop_gui_get_pluginui(dt_iop_module_t *module)
   return dtgtk_expander_get_frame(DTGTK_EXPANDER(module->expander));
 }
 
-int dt_iop_breakpoint(struct dt_develop_t *dev, struct dt_dev_pixelpipe_t *pipe)
-{
-  if(pipe != dev->preview_pipe) sched_yield();
-  if(pipe != dev->preview_pipe && pipe->changed == DT_DEV_PIPE_ZOOMED) return 1;
-  if((pipe->changed != DT_DEV_PIPE_UNCHANGED && pipe->changed != DT_DEV_PIPE_ZOOMED) || dev->gui_leaving)
-    return 1;
-  return 0;
-}
-
 void dt_iop_nap(int32_t usec)
 {
   if(usec <= 0) return;
@@ -2870,9 +2861,8 @@ void dt_iop_refresh_center(dt_iop_module_t *module)
   dt_develop_t *dev = module->dev;
   if (dev && dev->gui_attached)
   {
-    dev->pipe->changed |= DT_DEV_PIPE_SYNCH; //ensure that commit_params gets called to pick up any GUI changes
     dt_dev_invalidate(dev);
-    dt_control_queue_redraw_center();
+    dt_dev_refresh_ui_images(dev);
   }
 }
 
@@ -2882,9 +2872,8 @@ void dt_iop_refresh_preview(dt_iop_module_t *module)
   dt_develop_t *dev = module->dev;
   if (dev && dev->gui_attached)
   {
-    dev->pipe->changed |= DT_DEV_PIPE_SYNCH; //ensure that commit_params gets called to pick up any GUI changes
-    dt_dev_invalidate_all(dev);
-    dt_control_queue_redraw();
+    dt_dev_invalidate_preview(dev);
+    dt_dev_refresh_ui_images(dev);
   }
 }
 

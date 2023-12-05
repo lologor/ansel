@@ -43,6 +43,10 @@ typedef struct dt_lib_import_t
   GtkWidget *exif_info[EXIF_LAST_FIELD];
   GtkWidget *datetime;
   GtkWidget *dialog;
+  GtkWidget *grid;
+
+  GtkWidget *help_string;
+  GtkWidget *test_path;
 } dt_lib_import_t;
 
 
