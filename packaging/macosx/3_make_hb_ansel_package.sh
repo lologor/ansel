@@ -206,7 +206,7 @@ for dtExecutable in $dtExecutables; do
 done
 
 # Add homebrew shared objects
-dtSharedObjDirs="gtk-3.0 gdk-pixbuf-2.0 gio"
+dtSharedObjDirs="gtk-3.0 gdk-pixbuf-2.0 gio ImageMagick"
 for dtSharedObj in $dtSharedObjDirs; do
     cp -LR "$homebrewHome"/lib/"$dtSharedObj" "$dtResourcesDir"/lib/
 done
