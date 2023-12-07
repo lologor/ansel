@@ -150,8 +150,6 @@ typedef struct dt_develop_t
                         // gui_init'ed.
   int32_t gui_leaving;  // set if everything is scheduled to shut down.
   int32_t focus_hash;   // determines whether to start a new history item or to merge down.
-  gboolean preview_loading, image_loading, history_updating, first_load;
-  gboolean preview_input_changed;
 
   dt_dev_pixelpipe_status_t image_status, preview_status;
   int32_t image_invalid_cnt;
@@ -161,6 +159,11 @@ typedef struct dt_develop_t
 
   // width, height: dimensions of window
   int32_t width, height;
+
+  // Contains the source image to work with. Shared between pipes to
+  // mutualize I/O
+  dt_mipmap_buffer_t full_buf;
+  dt_mipmap_buffer_t small_buf;
 
   // image processing pipeline with caching
   struct dt_dev_pixelpipe_t *pipe, *preview_pipe;
@@ -331,14 +334,14 @@ void dt_dev_process_preview(dt_develop_t *dev);
 // only when needed, and only the one(s) needed.
 void dt_dev_refresh_ui_images(dt_develop_t *dev);
 
-void dt_dev_load_image(dt_develop_t *dev, const uint32_t imgid);
+int dt_dev_load_image(dt_develop_t *dev, const uint32_t imgid);
 void dt_dev_reload_image(dt_develop_t *dev, const uint32_t imgid);
+void dt_dev_unload_image(dt_develop_t *dev);
 /** checks if provided imgid is the image currently in develop */
 int dt_dev_is_current_image(dt_develop_t *dev, uint32_t imgid);
 const dt_dev_history_item_t *dt_dev_get_history_item(dt_develop_t *dev, const char *op);
 void dt_dev_add_history_item_ext(dt_develop_t *dev, struct dt_iop_module_t *module, gboolean enable, gboolean no_image);
 void dt_dev_add_history_item(dt_develop_t *dev, struct dt_iop_module_t *module, gboolean enable);
-void dt_dev_add_new_history_item(dt_develop_t *dev, struct dt_iop_module_t *module, gboolean enable);
 void dt_dev_add_masks_history_item_ext(dt_develop_t *dev, struct dt_iop_module_t *_module, gboolean _enable, gboolean no_image);
 void dt_dev_add_masks_history_item(dt_develop_t *dev, struct dt_iop_module_t *_module, gboolean enable);
 void dt_dev_reload_history_items(dt_develop_t *dev);
@@ -354,10 +357,9 @@ void dt_dev_invalidate_history_module(GList *list, struct dt_iop_module_t *modul
 // force a rebuild of the pipe, needed when a module order is changed for example
 void dt_dev_pixelpipe_rebuild(struct dt_develop_t *dev);
 
-void dt_dev_invalidate(dt_develop_t *dev);
-void dt_dev_invalidate_preview(dt_develop_t *dev);
-// also invalidates preview (which is unaffected by resize/zoom/pan)
-void dt_dev_invalidate_all(dt_develop_t *dev);
+void dt_dev_invalidate(dt_develop_t *dev, const char *caller, const char *file, const long line);
+void dt_dev_invalidate_preview(dt_develop_t *dev, const char *caller, const char *file, const long line);
+void dt_dev_invalidate_all(dt_develop_t *dev, const char *caller, const char *file, const long line);
 void dt_dev_set_histogram(dt_develop_t *dev);
 void dt_dev_set_histogram_pre(dt_develop_t *dev);
 void dt_dev_get_history_item_label(dt_dev_history_item_t *hist, char *label, const int cnt);

@@ -724,10 +724,10 @@ int dt_imageio_export_with_flags(const int32_t imgid, const char *filename,
   dt_develop_t dev;
   dt_dev_init(&dev, 0);
   dt_dev_load_image(&dev, imgid);
+  // TODO: reuse the darkroom opened pipe if any and imgid matches
 
-  const gboolean buf_is_downscaled = (thumbnail_export && dt_conf_get_bool("ui/performance"));
   dt_mipmap_buffer_t buf;
-  if(buf_is_downscaled)
+  if(thumbnail_export)
     dt_mipmap_cache_get(darktable.mipmap_cache, &buf, imgid, DT_MIPMAP_F, DT_MIPMAP_BLOCKING, 'r');
   else
     dt_mipmap_cache_get(darktable.mipmap_cache, &buf, imgid, DT_MIPMAP_FULL, DT_MIPMAP_BLOCKING, 'r');
@@ -1106,9 +1106,10 @@ int dt_imageio_export_with_flags(const int32_t imgid, const char *filename,
   if(res)
     goto error;
 
-  dt_dev_pixelpipe_cleanup(&pipe);
-  dt_dev_cleanup(&dev);
   dt_mipmap_cache_release(darktable.mipmap_cache, &buf);
+  dt_dev_pixelpipe_cleanup(&pipe);
+  dt_dev_unload_image(&dev);
+  dt_dev_cleanup(&dev);
 
   /* now write xmp into that container, if possible */
   if(copy_metadata && (format->flags(format_params) & FORMAT_FLAGS_SUPPORT_XMP))

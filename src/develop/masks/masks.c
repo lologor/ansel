@@ -1264,7 +1264,6 @@ void dt_masks_reset_form_gui(void)
 
 void dt_masks_reset_show_masks_icons(void)
 {
-  if(darktable.develop->first_load) return;
   for(GList *modules = darktable.develop->iop; modules; modules = g_list_next(modules))
   {
     dt_iop_module_t *m = (dt_iop_module_t *)modules->data;
@@ -1977,7 +1976,7 @@ void dt_masks_update_image(dt_develop_t *dev)
   // dt_similarity_image_dirty(dev->image_storage.id);
 
   // invalidate buffers and force redraw of darkroom
-  dt_dev_invalidate_all(dev);
+  dt_dev_invalidate_all(dev, __FUNCTION__, __FILE__, __LINE__);
   dt_dev_refresh_ui_images(dev);
 }
 

@@ -102,7 +102,7 @@ typedef struct dt_iop_crop_gui_data_t
   float prev_clip_x, prev_clip_y, prev_clip_w, prev_clip_h;
   /* maximum clip box */
   float clip_max_x, clip_max_y, clip_max_w, clip_max_h;
-  uint64_t clip_max_pipe_hash;
+  //uint64_t clip_max_pipe_hash;
 
   int cropping;
   gboolean shift_hold;
@@ -178,8 +178,6 @@ static void _commit_box(dt_iop_module_t *self, dt_iop_crop_gui_data_t *g, dt_iop
   if(self->dev->preview_status != DT_DEV_PIXELPIPE_VALID) return;
 
   g->cropping = 0;
-  const dt_boundingbox_t old = { p->cx, p->cy, p->cw, p->ch };
-  const float eps = 1e-6f; // threshold to avoid rounding errors
   if(!self->enabled)
   {
     // first time crop, if any data is stored in p, it's obsolete:
@@ -208,9 +206,7 @@ static void _commit_box(dt_iop_module_t *self, dt_iop_crop_gui_data_t *g, dt_iop
       p->ch = CLAMPF(p->ch, 0.1f, 1.0f);
     }
   }
-  const gboolean changed = fabs(p->cx - old[0]) > eps || fabs(p->cy - old[1]) > eps || fabs(p->cw - old[2]) > eps || fabs(p->ch - old[3]) > eps;
   // fprintf(stderr, "[crop commit box] %i:  %e %e %e %e\n", changed, p->cx - old[0], p->cy - old[1], p->cw - old[2], p->ch - old[3]);
-  if(changed) dt_dev_add_history_item(darktable.develop, self, TRUE);
 }
 
 static int _set_max_clip(struct dt_iop_module_t *self)
@@ -218,7 +214,7 @@ static int _set_max_clip(struct dt_iop_module_t *self)
   dt_iop_crop_gui_data_t *g = (dt_iop_crop_gui_data_t *)self->gui_data;
   dt_iop_crop_params_t *p = (dt_iop_crop_params_t *)self->params;
 
-  if(g->clip_max_pipe_hash == self->dev->preview_pipe->backbuf_hash) return 1;
+  //if(g->clip_max_pipe_hash == self->dev->preview_pipe->backbuf_hash) return 1;
   if(self->dev->preview_status != DT_DEV_PIXELPIPE_VALID) return 1;
 
   // we want to know the size of the actual buffer
@@ -242,7 +238,7 @@ static int _set_max_clip(struct dt_iop_module_t *self)
   g->clip_w = fminf((points[6] - points[4]) / self->dev->preview_pipe->backbuf_width, g->clip_max_w);
   g->clip_h = fminf((points[7] - points[5]) / self->dev->preview_pipe->backbuf_height, g->clip_max_h);
 
-  g->clip_max_pipe_hash = self->dev->preview_pipe->backbuf_hash;
+  //g->clip_max_pipe_hash = self->dev->preview_pipe->backbuf_hash;
   return 1;
 }
 
@@ -395,7 +391,7 @@ static void _event_preview_updated_callback(gpointer instance, dt_iop_module_t *
     dt_image_update_final_size(self->dev->preview_pipe->output_imgid);
   }
   // force max size to be recomputed
-  g->clip_max_pipe_hash = 0;
+  //g->clip_max_pipe_hash = 0;
 }
 
 void gui_focus(struct dt_iop_module_t *self, gboolean in)
@@ -426,11 +422,15 @@ void gui_focus(struct dt_iop_module_t *self, gboolean in)
       self->dev->gui_module = self;
       _commit_box(self, g, p);
       self->dev->gui_module = old_gui;
-      g->clip_max_pipe_hash = 0;
+      //g->clip_max_pipe_hash = 0;
     }
   }
   else if(in)
     g->preview_ready = TRUE;
+
+  dt_control_queue_redraw_center();
+  dt_dev_invalidate(self->dev, __FUNCTION__, __FILE__, __LINE__);
+  dt_dev_refresh_ui_images(self->dev);
 }
 
 void init_pipe(struct dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)
@@ -991,6 +991,8 @@ static void _event_commit_clicked(GtkButton *button, dt_iop_module_t *self)
   dt_iop_crop_gui_data_t *g = (dt_iop_crop_gui_data_t *)self->gui_data;
   dt_iop_crop_params_t *p = (dt_iop_crop_params_t *)self->params;
   _commit_box(self, g, p);
+  dt_dev_add_history_item(darktable.develop, self, TRUE);
+  dt_dev_refresh_ui_images(darktable.develop);
 }
 
 static void _event_aspect_flip(GtkWidget *button, dt_iop_module_t *self)
@@ -1036,7 +1038,7 @@ void gui_init(struct dt_iop_module_t *self)
   g->clip_w = g->clip_h = 1.0;
   g->clip_max_x = g->clip_max_y = 0.0;
   g->clip_max_w = g->clip_max_h = 1.0;
-  g->clip_max_pipe_hash = 0;
+  //g->clip_max_pipe_hash = 0;
   g->cropping = GRAB_CENTER;
   g->shift_hold = FALSE;
   g->ctrl_hold = FALSE;
@@ -1366,7 +1368,7 @@ int mouse_moved(struct dt_iop_module_t *self, double x, double y, double pressur
   dt_iop_crop_gui_data_t *g = (dt_iop_crop_gui_data_t *)self->gui_data;
 
   // we don't do anything if the image is not ready
-  if(!g->preview_ready || self->dev->preview_loading) return 0;
+  if(!g->preview_ready) return 0;
 
   const float wd = self->dev->preview_pipe->backbuf_width;
   const float ht = self->dev->preview_pipe->backbuf_height;

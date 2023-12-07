@@ -710,7 +710,7 @@ void init(dt_iop_module_t *module)
 
 void gui_focus(struct dt_iop_module_t *self, gboolean in)
 {
-  if(self->enabled && !darktable.develop->image_loading)
+  if(self->enabled)
   {
     dt_iop_spots_gui_data_t *g = (dt_iop_spots_gui_data_t *)self->gui_data;
 
@@ -787,8 +787,6 @@ void gui_update(dt_iop_module_t *self)
 
   // update edit shapes status
   dt_iop_gui_blend_data_t *bd = (dt_iop_gui_blend_data_t *)self->blend_data;
-
-  if(darktable.develop->history_updating) bd->masks_shown = DT_MASKS_EDIT_OFF;
 
   //only toggle shape show button if shapes exist
   if(grp && (grp->type & DT_MASKS_GROUP) && grp->points)
