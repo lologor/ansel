@@ -360,6 +360,7 @@ void dt_dev_pixelpipe_rebuild(struct dt_develop_t *dev);
 void dt_dev_invalidate(dt_develop_t *dev, const char *caller, const char *file, const long line);
 void dt_dev_invalidate_preview(dt_develop_t *dev, const char *caller, const char *file, const long line);
 void dt_dev_invalidate_all(dt_develop_t *dev, const char *caller, const char *file, const long line);
+void dt_dev_invalidate_zoom(dt_develop_t *dev, const char *caller, const char *file, const long line);
 void dt_dev_set_histogram(dt_develop_t *dev);
 void dt_dev_set_histogram_pre(dt_develop_t *dev);
 void dt_dev_get_history_item_label(dt_dev_history_item_t *hist, char *label, const int cnt);

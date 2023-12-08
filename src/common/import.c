@@ -53,10 +53,85 @@
 #include <librsvg/rsvg-cairo.h>
 #endif
 
-static GSList *_get_subfolder(GFile *folder);
 static void _do_select_all(dt_lib_import_t *d);
 static void _do_select_none(dt_lib_import_t *d);
 static void _do_select_new(dt_lib_import_t *d);
+
+static GSList* _get_subfolder(GFile *folder)
+{
+  // Get subfolders and files from current folder
+  // Put them in a GSList for compatibility with the rest of the API.
+  GFileEnumerator *files
+      = g_file_enumerate_children(folder, G_FILE_ATTRIBUTE_STANDARD_NAME "," G_FILE_ATTRIBUTE_STANDARD_TYPE,
+                                  G_FILE_QUERY_INFO_NONE, NULL, NULL);
+
+  GFile *file = NULL;
+  GSList *files_list = NULL;
+  while(g_file_enumerator_iterate(files, NULL, &file, NULL, NULL))
+  {
+    // g_file_enumerator_iterate returns FALSE only on errors, not on end of enumeration.
+    // We need an ugly break here else infinite loop.
+    if(!file) break;
+    // *file is destroyed with g_object_unref below, but GFile doesn't support memcpy.
+    // We create a new "file" from the path of the read one.
+    // Note that a GFile is the abstracted representation of an harddrive file, not the file itself.
+    // Creating a new GFile doesn't create I/O on the disk.
+    files_list = g_slist_append(files_list, g_file_new_for_path(g_file_get_path(file)));
+  }
+
+  g_object_unref(files);
+
+  return files_list;
+}
+
+static GList* _recurse_folder(GSList *files, GList *items, GtkFileFilter *filter)
+{
+  for(GSList *file = files; file; file = g_slist_next(file))
+  {
+    GFile *document = (GFile *)file->data;
+    gchar *pathname = g_file_get_path(document);
+    GtkFileFilterInfo filter_info = { gtk_file_filter_get_needed(filter),
+                                      g_file_get_parse_name(document),
+                                      g_file_get_uri(document),
+                                      g_file_get_parse_name(document), NULL };
+
+    // Check that document is a real file (not directory) and it passes the type check defined by user in GUI filters.
+    // gtk_file_chooser_get_files() applies the filters on the first level of recursivity,
+    // so this test is only useful for the next levels if folders are selected at the first level.
+    if(g_file_test(pathname, G_FILE_TEST_IS_REGULAR) && gtk_file_filter_filter(filter, &filter_info))
+    {
+      items = g_list_prepend(items, pathname);
+      // prepend is more efficient than append. Import control reorders alphabetically anyway.
+    }
+    else if(g_file_test(pathname, G_FILE_TEST_IS_DIR))
+    {
+      GSList *children = _get_subfolder(document);
+      items = _recurse_folder(children, items, filter);
+      g_slist_free_full(children, g_object_unref);
+    }
+  }
+  return items;
+}
+
+static GList * _get_selected_files(dt_lib_import_t *d)
+{
+  // Warning : Need do free the output in the caller
+  GList *items = NULL;
+
+  // Get selected files and subfolders
+  GSList *files = gtk_file_chooser_get_files(GTK_FILE_CHOOSER(d->file_chooser));
+  if(g_slist_length(files) == 0) return NULL;
+
+  // Get the file filter in use
+  GtkFileFilter *filter = gtk_file_chooser_get_filter(GTK_FILE_CHOOSER(d->file_chooser));
+
+  // Get files and recurse through subfolders if any selected
+  items = _recurse_folder(files, items, filter);
+  g_slist_free(files);
+
+  return items;
+}
+
 
 static GdkPixbuf *_import_get_thumbnail(const gchar *filename, const int width, const int height)
 {
@@ -403,6 +478,14 @@ static void _set_test_path(dt_lib_import_t *d)
 static void _selection_changed(GtkWidget *filechooser, dt_lib_import_t *d)
 {
   _set_test_path(d);
+  GList *items = _get_selected_files(d);
+  const int num_items = g_list_length(items);
+
+  // Technically, we could store it and use that when "import" is clicked,
+  // but this callback might interfere with the "activate" one, so go for the safe unefficient path.
+  g_list_free(items);
+
+  gtk_label_set_text(GTK_LABEL(d->selected_files), g_strdup_printf(_("%i files selected"), num_items));
 }
 
 static void _copy_toggled_callback(GtkWidget *combobox, dt_lib_import_t *d)
@@ -491,7 +574,7 @@ static void gui_init(dt_lib_import_t *d)
   d->dialog = gtk_dialog_new_with_buttons
     ( _("Ansel — Open pictures"), NULL, GTK_DIALOG_MODAL,
       _("Cancel"), GTK_RESPONSE_CANCEL,
-      _("Open"), GTK_RESPONSE_ACCEPT,
+      _("Import"), GTK_RESPONSE_ACCEPT,
       NULL);
 
 #ifdef GDK_WINDOWING_QUARTZ
@@ -552,6 +635,9 @@ static void gui_init(dt_lib_import_t *d)
                                 "The lookup is done by searching for the original filename and date/time. "
                                 "It can detect files existing at another path, under a different name. "
                                 "False-positive can arise if two pictures have been taken at the same time with the same name."));
+
+  d->selected_files = gtk_label_new("");
+  gtk_box_pack_start(GTK_BOX(toolbox), d->selected_files, FALSE, FALSE, 0);
 
   gtk_file_chooser_set_extra_widget(GTK_FILE_CHOOSER(d->file_chooser), toolbox);
 
@@ -720,6 +806,9 @@ static void gui_init(dt_lib_import_t *d)
 
   // Duplication parameters visible only if the option is set
   gtk_widget_set_visible(GTK_WIDGET(grid), dt_conf_get_bool("ui_last/import_copy"));
+
+  // Update the number of selected files string because Gtk forces a default selection at opening time
+  _get_selected_files(d);
 }
 
 static void _do_select_all(dt_lib_import_t *d)
@@ -784,63 +873,6 @@ static void _import_set_collection(const char *dirname)
   }
 }
 
-static GSList* _get_subfolder(GFile *folder)
-{
-  // Get subfolders and files from current folder
-  // Put them in a GSList for compatibility with the rest of the API.
-  GFileEnumerator *files
-      = g_file_enumerate_children(folder, G_FILE_ATTRIBUTE_STANDARD_NAME "," G_FILE_ATTRIBUTE_STANDARD_TYPE,
-                                  G_FILE_QUERY_INFO_NONE, NULL, NULL);
-
-  GFile *file = NULL;
-  GSList *files_list = NULL;
-  while(g_file_enumerator_iterate(files, NULL, &file, NULL, NULL))
-  {
-    // g_file_enumerator_iterate returns FALSE only on errors, not on end of enumeration.
-    // We need an ugly break here else infinite loop.
-    if(!file) break;
-    // *file is destroyed with g_object_unref below, but GFile doesn't support memcpy.
-    // We create a new "file" from the path of the read one.
-    // Note that a GFile is the abstracted representation of an harddrive file, not the file itself.
-    // Creating a new GFile doesn't create I/O on the disk.
-    files_list = g_slist_append(files_list, g_file_new_for_path(g_file_get_path(file)));
-  }
-
-  g_object_unref(files);
-
-  return files_list;
-}
-
-static GList* _recurse_folder(GSList *files, GList *items, GtkFileFilter *filter)
-{
-  for(GSList *file = files; file; file = g_slist_next(file))
-  {
-    GFile *document = (GFile *)file->data;
-    gchar *pathname = g_file_get_path(document);
-    GtkFileFilterInfo filter_info = { gtk_file_filter_get_needed(filter),
-                                      g_file_get_parse_name(document),
-                                      g_file_get_uri(document),
-                                      g_file_get_parse_name(document), NULL };
-
-    // Check that document is a real file (not directory) and it passes the type check defined by user in GUI filters.
-    // gtk_file_chooser_get_files() applies the filters on the first level of recursivity,
-    // so this test is only useful for the next levels if folders are selected at the first level.
-    if(g_file_test(pathname, G_FILE_TEST_IS_REGULAR) && gtk_file_filter_filter(filter, &filter_info))
-    {
-      items = g_list_prepend(items, pathname);
-      // prepend is more efficient than append. Import control reorders alphabetically anyway.
-    }
-    else if(g_file_test(pathname, G_FILE_TEST_IS_DIR))
-    {
-      GSList *children = _get_subfolder(document);
-      items = _recurse_folder(children, items, filter);
-      g_slist_free_full(children, g_object_unref);
-    }
-  }
-  return items;
-}
-
-
 static void _import_from_dialog_run(dt_lib_import_t *d)
 {
   // Import params
@@ -858,15 +890,7 @@ static void _import_from_dialog_run(dt_lib_import_t *d)
     }
   }
 
-  // Get the file filter in use
-  GtkFileFilter *filter = gtk_file_chooser_get_filter(GTK_FILE_CHOOSER(d->file_chooser));
-
-  // Get selected files and subfolders
-  GSList *files = gtk_file_chooser_get_files(GTK_FILE_CHOOSER(d->file_chooser));
-  if(g_slist_length(files) == 0) return;
-  GList *items = NULL;
-  items = _recurse_folder(files, items, filter);
-  g_slist_free(files);
+  GList *items = _get_selected_files(d);
 
   if(items)
   {

@@ -229,6 +229,18 @@ void dt_dev_invalidate(dt_develop_t *dev, const char *caller, const char *file, 
   dt_pthread_mutex_unlock(&dev->history_mutex);
 }
 
+void dt_dev_invalidate_zoom(dt_develop_t *dev, const char *caller, const char *file, const long line)
+{
+  dt_print(DT_DEBUG_DEV, "[dev_process_image] sending killswitch signal from %s - in %s:%ld\n", caller, file, line);
+
+  dt_atomic_set_int(&dev->pipe->shutdown, TRUE);
+
+  dt_pthread_mutex_lock(&dev->history_mutex);
+  dev->image_status = DT_DEV_PIXELPIPE_DIRTY;
+  dev->pipe->changed |= DT_DEV_PIPE_ZOOMED;
+  dt_pthread_mutex_unlock(&dev->history_mutex);
+}
+
 void dt_dev_invalidate_preview(dt_develop_t *dev, const char *caller, const char *file, const long line)
 {
   dt_print(DT_DEBUG_DEV, "[dev_process_preview] sending killswitch signal from %s - in %s:%ld\n", caller, file, line);
@@ -547,13 +559,11 @@ void dt_dev_configure(dt_develop_t *dev, int wd, int ht)
   {
     dev->width = wd;
     dev->height = ht;
-    dev->preview_pipe->changed |= DT_DEV_PIPE_ZOOMED;
-    dev->pipe->changed |= DT_DEV_PIPE_ZOOMED;
+    dt_dev_invalidate_zoom(dev, __FUNCTION__, __FILE__, __LINE__);
 
     if(dev->image_storage.id > -1 && darktable.mipmap_cache)
     {
       // Only if it's not our initial configure call, aka if we already have an image
-      dt_atomic_set_int(&dev->pipe->shutdown, TRUE);
       dt_control_queue_redraw_center();
       dt_dev_refresh_ui_images(dev);
     }

@@ -47,6 +47,7 @@ typedef struct dt_lib_import_t
 
   GtkWidget *help_string;
   GtkWidget *test_path;
+  GtkWidget *selected_files;
 } dt_lib_import_t;
 
 

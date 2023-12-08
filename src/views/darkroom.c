@@ -658,6 +658,7 @@ void reset(dt_view_t *self)
 int try_enter(dt_view_t *self)
 {
   int32_t imgid = dt_selection_get_first_id(darktable.selection);
+  dt_control_set_mouse_over_id(imgid);
 
   if(imgid < 0)
   {
@@ -2547,11 +2548,12 @@ void mouse_leave(dt_view_t *self)
   dt_control_set_mouse_over_id(dev->image_storage.id);
 
   // masks
-  int handled = dt_masks_events_mouse_leave(dev->gui_module);
-  if(handled) return;
+  if(dev->form_visible && dt_masks_events_mouse_leave(dev->gui_module));
   // module
-  if(dev->gui_module && dev->gui_module->mouse_leave)
-    handled = dev->gui_module->mouse_leave(dev->gui_module);
+  else if(dev->gui_module && dev->gui_module->mouse_leave
+          && dev->gui_module->mouse_leave(dev->gui_module));
+
+  dt_control_queue_redraw_center();
 
   // reset any changes the selected plugin might have made.
   dt_control_change_cursor(GDK_LEFT_PTR);
@@ -2603,7 +2605,6 @@ void mouse_moved(dt_view_t *self, double x, double y, double pressure, int which
   float offx = 0.0f, offy = 0.0f;
   if(width_i > capwd) offx = (capwd - width_i) * .5f;
   if(height_i > capht) offy = (capht - height_i) * .5f;
-  int handled = 0;
 
   if(dt_iop_color_picker_is_visible(dev) && ctl->button_down && ctl->button_down_which == 1)
   {
@@ -2632,20 +2633,26 @@ void mouse_moved(dt_view_t *self, double x, double y, double pressure, int which
         dev->preview_status = DT_DEV_PIXELPIPE_DIRTY;
       }
     }
-    dt_dev_invalidate_preview(dev, __FUNCTION__, __FILE__, __LINE__);
+
     dt_control_queue_redraw_center();
-    dt_dev_refresh_ui_images(dev);
     return;
   }
   x += offx;
   y += offy;
   // masks
-  handled = dt_masks_events_mouse_moved(dev->gui_module, x, y, pressure, which);
-  if(handled) return;
+  if(dev->form_visible && dt_masks_events_mouse_moved(dev->gui_module, x, y, pressure, which))
+  {
+    dt_control_queue_redraw_center();
+    return;
+  }
+
   // module
-  if(dev->gui_module && dev->gui_module->mouse_moved)
-    handled = dev->gui_module->mouse_moved(dev->gui_module, x, y, pressure, which);
-  if(handled) return;
+  if(dev->gui_module && dev->gui_module->mouse_moved
+    &&dev->gui_module->mouse_moved(dev->gui_module, x, y, pressure, which))
+  {
+    dt_control_queue_redraw_center();
+    return;
+  }
 
   if(darktable.control->button_down && darktable.control->button_down_which == 1)
   {
@@ -2685,31 +2692,106 @@ int button_released(dt_view_t *self, double x, double y, int which, uint32_t sta
   if(width_i > capwd) x += (capwd - width_i) * .5f;
   if(height_i > capht) y += (capht - height_i) * .5f;
 
-  int handled = 0;
   if(dt_iop_color_picker_is_visible(dev) && which == 1)
   {
     // only sample box picker at end, for speed
     if(darktable.lib->proxy.colorpicker.primary_sample->size == DT_LIB_COLORPICKER_SIZE_BOX)
     {
       dev->preview_status = DT_DEV_PIXELPIPE_DIRTY;
-      dt_control_queue_redraw_center();
       dt_control_change_cursor(GDK_LEFT_PTR);
     }
+
     dt_control_queue_redraw_center();
-    dt_control_navigation_redraw();
+
+    // FIXME: use invalidate_top in the future
     dt_dev_invalidate_preview(dev, __FUNCTION__, __FILE__, __LINE__);
     dt_dev_refresh_ui_images(dev);
     return 1;
   }
   // masks
-  if(dev->form_visible) handled = dt_masks_events_button_released(dev->gui_module, x, y, which, state);
-  if(handled) return handled;
+  if(dev->form_visible && dt_masks_events_button_released(dev->gui_module, x, y, which, state))
+  {
+    // Change on mask parameters and image output.
+    // FIXME: use invalidate_top in the future
+    dt_dev_invalidate_all(dev, __FUNCTION__, __FILE__, __LINE__);
+    dt_control_queue_redraw_center();
+    dt_dev_refresh_ui_images(dev);
+    return 1;
+  }
+
   // module
-  if(dev->gui_module && dev->gui_module->button_released)
-    handled = dev->gui_module->button_released(dev->gui_module, x, y, which, state);
-  if(handled) return handled;
+  if(dev->gui_module && dev->gui_module->button_released
+     && dev->gui_module->button_released(dev->gui_module, x, y, which, state))
+  {
+    // Click in modules should handle history changes internally. Only update zoom here.
+    dt_dev_invalidate_zoom(dev, __FUNCTION__, __FILE__, __LINE__);
+    dt_control_queue_redraw_center();
+    dt_dev_refresh_ui_images(dev);
+    return 1;
+  }
+
   if(which == 1) dt_control_change_cursor(GDK_LEFT_PTR);
-  return 1;
+
+  if(which == 2)
+  {
+    // zoom to 1:1 2:1 and back
+    int procw, proch;
+    dt_dev_zoom_t zoom = dt_control_get_dev_zoom();
+    int closeup = dt_control_get_dev_closeup();
+    float zoom_x = dt_control_get_dev_zoom_x();
+    float zoom_y = dt_control_get_dev_zoom_y();
+    dt_dev_get_processed_size(dev, &procw, &proch);
+    float scale = dt_dev_get_zoom_scale(dev, zoom, 1<<closeup, 0);
+    const float ppd = darktable.gui->ppd;
+    const gboolean low_ppd = (darktable.gui->ppd == 1);
+    const float mouse_off_x = x - 0.5f * dev->width;
+    const float mouse_off_y = y - 0.5f * dev->height;
+    zoom_x += mouse_off_x / (procw * scale);
+    zoom_y += mouse_off_y / (proch * scale);
+    const float tscale = scale * ppd;
+    closeup = 0;
+    if((tscale > 0.95f) && (tscale < 1.05f)) // we are at 100% and switch to 200%
+    {
+      zoom = DT_ZOOM_1;
+      scale = dt_dev_get_zoom_scale(dev, DT_ZOOM_1, 1.0, 0);
+      if(low_ppd) closeup = 1;
+    }
+    else if((tscale > 1.95f) && (tscale < 2.05f)) // at 200% so switch to zoomfit
+    {
+      zoom = DT_ZOOM_FIT;
+      scale = dt_dev_get_zoom_scale(dev, DT_ZOOM_FIT, 1.0, 0);
+    }
+    else // other than 100 or 200% so zoom to 100 %
+    {
+      if(low_ppd)
+      {
+        zoom = DT_ZOOM_1;
+        scale = dt_dev_get_zoom_scale(dev, DT_ZOOM_1, 1.0, 0);
+      }
+      else
+      {
+        zoom = DT_ZOOM_FREE;
+        scale = 1.0f / ppd;
+      }
+    }
+    dt_control_set_dev_zoom_scale(scale);
+    dt_control_set_dev_closeup(closeup);
+    scale = dt_dev_get_zoom_scale(dev, zoom, 1<<closeup, 0);
+    zoom_x -= mouse_off_x / (procw * scale);
+    zoom_y -= mouse_off_y / (proch * scale);
+    dt_dev_check_zoom_bounds(dev, &zoom_x, &zoom_y, zoom, closeup, NULL, NULL);
+    dt_control_set_dev_zoom(zoom);
+    dt_control_set_dev_zoom_x(zoom_x);
+    dt_control_set_dev_zoom_y(zoom_y);
+
+    dt_control_queue_redraw_center();
+    dt_control_navigation_redraw();
+    dt_dev_invalidate_zoom(dev, __FUNCTION__, __FILE__, __LINE__);
+    dt_dev_refresh_ui_images(dev);
+    return 1;
+  }
+
+  return 0;
 }
 
 
@@ -2726,7 +2808,6 @@ int button_pressed(dt_view_t *self, double x, double y, double pressure, int whi
   if(width_i > capwd) offx = (capwd - width_i) * .5f;
   if(height_i > capht) offy = (capht - height_i) * .5f;
 
-  int handled = 0;
   if(dt_iop_color_picker_is_visible(dev))
   {
     float zoom_x, zoom_y;
@@ -2793,10 +2874,6 @@ int button_pressed(dt_view_t *self, double x, double y, double pressure, int whi
           }
           dt_control_change_cursor(GDK_FLEUR);
         }
-        else if(sample->size == DT_LIB_COLORPICKER_SIZE_POINT)
-        {
-          dev->preview_status = DT_DEV_PIXELPIPE_DIRTY;
-        }
       }
       dt_control_queue_redraw_center();
       return 1;
@@ -2830,8 +2907,6 @@ int button_pressed(dt_view_t *self, double x, double y, double pressure, int whi
           }
           else
             continue;
-          dev->preview_status = DT_DEV_PIXELPIPE_DIRTY;
-          dt_control_queue_redraw_center();
           return 1;
         }
 
@@ -2841,10 +2916,7 @@ int button_pressed(dt_view_t *self, double x, double y, double pressure, int whi
         // FIXME: color_pixer_proxy should have an dt_iop_color_picker_clear_area() function for this
         dt_boundingbox_t reset = { 0.01f, 0.01f, 0.99f, 0.99f };
         dt_lib_colorpicker_set_box_area(darktable.lib, reset);
-        dev->preview_status = DT_DEV_PIXELPIPE_DIRTY;
-        dt_control_queue_redraw_center();
       }
-
       return 1;
     }
   }
@@ -2852,72 +2924,18 @@ int button_pressed(dt_view_t *self, double x, double y, double pressure, int whi
   x += offx;
   y += offy;
   // masks
-  if(dev->form_visible)
-    handled = dt_masks_events_button_pressed(dev->gui_module, x, y, pressure, which, type, state);
-  if(handled) return handled;
+  if(dev->form_visible && dt_masks_events_button_pressed(dev->gui_module, x, y, pressure, which, type, state))
+    return 1;
+
   // module
-  if(dev->gui_module && dev->gui_module->button_pressed)
-    handled = dev->gui_module->button_pressed(dev->gui_module, x, y, pressure, which, type, state);
-  if(handled) return handled;
+  if(dev->gui_module && dev->gui_module->button_pressed
+     && dev->gui_module->button_pressed(dev->gui_module, x, y, pressure, which, type, state))
+     return 1;
 
   if(which == 1 && type == GDK_2BUTTON_PRESS) return 0;
   if(which == 1)
   {
     dt_control_change_cursor(GDK_HAND1);
-    return 1;
-  }
-  if(which == 2)
-  {
-    // zoom to 1:1 2:1 and back
-    int procw, proch;
-    dt_dev_zoom_t zoom = dt_control_get_dev_zoom();
-    int closeup = dt_control_get_dev_closeup();
-    float zoom_x = dt_control_get_dev_zoom_x();
-    float zoom_y = dt_control_get_dev_zoom_y();
-    dt_dev_get_processed_size(dev, &procw, &proch);
-    float scale = dt_dev_get_zoom_scale(dev, zoom, 1<<closeup, 0);
-    const float ppd = darktable.gui->ppd;
-    const gboolean low_ppd = (darktable.gui->ppd == 1);
-    const float mouse_off_x = x - 0.5f * dev->width;
-    const float mouse_off_y = y - 0.5f * dev->height;
-    zoom_x += mouse_off_x / (procw * scale);
-    zoom_y += mouse_off_y / (proch * scale);
-    const float tscale = scale * ppd;
-    closeup = 0;
-    if((tscale > 0.95f) && (tscale < 1.05f)) // we are at 100% and switch to 200%
-    {
-      zoom = DT_ZOOM_1;
-      scale = dt_dev_get_zoom_scale(dev, DT_ZOOM_1, 1.0, 0);
-      if(low_ppd) closeup = 1;
-    }
-    else if((tscale > 1.95f) && (tscale < 2.05f)) // at 200% so switch to zoomfit
-    {
-      zoom = DT_ZOOM_FIT;
-      scale = dt_dev_get_zoom_scale(dev, DT_ZOOM_FIT, 1.0, 0);
-    }
-    else // other than 100 or 200% so zoom to 100 %
-    {
-      if(low_ppd)
-      {
-        zoom = DT_ZOOM_1;
-        scale = dt_dev_get_zoom_scale(dev, DT_ZOOM_1, 1.0, 0);
-      }
-      else
-      {
-        zoom = DT_ZOOM_FREE;
-        scale = 1.0f / ppd;
-      }
-    }
-    dt_control_set_dev_zoom_scale(scale);
-    dt_control_set_dev_closeup(closeup);
-    scale = dt_dev_get_zoom_scale(dev, zoom, 1<<closeup, 0);
-    zoom_x -= mouse_off_x / (procw * scale);
-    zoom_y -= mouse_off_y / (proch * scale);
-    dt_dev_check_zoom_bounds(dev, &zoom_x, &zoom_y, zoom, closeup, NULL, NULL);
-    dt_control_set_dev_zoom(zoom);
-    dt_control_set_dev_zoom_x(zoom_x);
-    dt_control_set_dev_zoom_y(zoom_y);
-    dt_control_queue_redraw_center();
     return 1;
   }
   return 0;
@@ -2934,14 +2952,26 @@ void scrolled(dt_view_t *self, double x, double y, int up, int state)
   if(width_i > capwd) x += (capwd - width_i) * .5f;
   if(height_i > capht) y += (capht - height_i) * .5f;
 
-  int handled = 0;
   // masks
-  if(dev->form_visible) handled = dt_masks_events_mouse_scrolled(dev->gui_module, x, y, up, state);
-  if(handled) return;
+  if(dev->form_visible && dt_masks_events_mouse_scrolled(dev->gui_module, x, y, up, state))
+  {
+    // Scroll on masks changes their size, therefore mask parameters and image output.
+    // FIXME: use invalidate_top in the future
+    dt_dev_invalidate_all(dev, __FUNCTION__, __FILE__, __LINE__);
+    dt_control_queue_redraw_center();
+    dt_dev_refresh_ui_images(dev);
+    return;
+  }
+
   // module
-  if(dev->gui_module && dev->gui_module->scrolled)
-    handled = dev->gui_module->scrolled(dev->gui_module, x, y, up, state);
-  if(handled) return;
+  if(dev->gui_module && dev->gui_module->scrolled && dev->gui_module->scrolled(dev->gui_module, x, y, up, state))
+  {
+    // Scroll in modules should handle history changes internally. Only update zoom here.
+    dt_dev_invalidate_zoom(dev, __FUNCTION__, __FILE__, __LINE__);
+    dt_control_queue_redraw_center();
+    dt_dev_refresh_ui_images(dev);
+    return;
+  }
   // free zoom
   int procw, proch;
   dt_dev_zoom_t zoom = dt_control_get_dev_zoom();
@@ -3064,7 +3094,7 @@ void scrolled(dt_view_t *self, double x, double y, int up, int state)
   dt_control_queue_redraw_center();
   dt_control_navigation_redraw();
 
-  dt_dev_invalidate(dev, __FUNCTION__, __FILE__, __LINE__);
+  dt_dev_invalidate_zoom(dev, __FUNCTION__, __FILE__, __LINE__);
   dt_dev_refresh_ui_images(dev);
 }
 
