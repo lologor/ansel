@@ -1461,39 +1461,39 @@ static int pixelpipe_process_on_GPU(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev,
       {
         /* Nice, everything went fine */
 
-        /* this is reasonable on slow GPUs only, where it's more expensive to reprocess the whole pixelpipe
-           than
-           regularly copying device buffers back to host. This would slow down fast GPUs considerably.
-           But it is worth copying data back from the GPU which is the input to the currently focused iop,
-           as that is the iop which is most likely to change next.
+        /* OLD COMMENT: 
+           this is reasonable on slow GPUs only, where it's more expensive to reprocess the whole pixelpipe
+           than regularly copying device buffers back to host. This would slow down fast GPUs considerably.
+           NEW COMMENT:
+           did you ever met diffuse and sharpen ?
+           Also, not caching GPU buffers results in broken mask previews, that darktable handles
+           by invalidating the cache completely, which requires a full pipeline computation each time.
+           Also, since the cache actually works and can use a lot more memory, caching GPU output
+           enables to bypass a serious number of modules, so the memory I/O cost is a good overall investment.
         */
-        if((darktable.opencl->sync_cache == OPENCL_SYNC_TRUE) ||
-           ((darktable.opencl->sync_cache == OPENCL_SYNC_ACTIVE_MODULE) && (module == darktable.develop->gui_module)))
+        /* write back input into cache for faster re-usal (not for export or thumbnails) */
+        if(cl_mem_input != NULL
+            && (pipe->type & DT_DEV_PIXELPIPE_EXPORT) != DT_DEV_PIXELPIPE_EXPORT
+            && (pipe->type & DT_DEV_PIXELPIPE_THUMBNAIL) != DT_DEV_PIXELPIPE_THUMBNAIL)
         {
-          /* write back input into cache for faster re-usal (not for export or thumbnails) */
-          if(cl_mem_input != NULL
-             && (pipe->type & DT_DEV_PIXELPIPE_EXPORT) != DT_DEV_PIXELPIPE_EXPORT
-             && (pipe->type & DT_DEV_PIXELPIPE_THUMBNAIL) != DT_DEV_PIXELPIPE_THUMBNAIL)
+          /* copy input to host memory, so we can find it in cache */
+          cl_int err = dt_opencl_copy_device_to_host(pipe->devid, input, cl_mem_input, roi_in->width,
+                                              roi_in->height, in_bpp);
+          if(err != CL_SUCCESS)
           {
-            /* copy input to host memory, so we can find it in cache */
-            cl_int err = dt_opencl_copy_device_to_host(pipe->devid, input, cl_mem_input, roi_in->width,
-                                                roi_in->height, in_bpp);
-            if(err != CL_SUCCESS)
-            {
-              /* late opencl error, not likely to happen here */
-              dt_print(DT_DEBUG_OPENCL, "[opencl_pixelpipe (e)] late opencl error detected while copying "
-                                        "back to cpu buffer: %s\n", cl_errstr(err));
-              /* that's all we do here, we later make sure to invalidate cache line */
-            }
-            else
-            {
-              /* success: cache line is valid now, so we will not need to invalidate it later */
-              valid_input_on_gpu_only = FALSE;
+            /* late opencl error, not likely to happen here */
+            dt_print(DT_DEBUG_OPENCL, "[opencl_pixelpipe (e)] late opencl error detected while copying "
+                                      "back to cpu buffer: %s\n", cl_errstr(err));
+            /* that's all we do here, we later make sure to invalidate cache line */
+          }
+          else
+          {
+            /* success: cache line is valid now, so we will not need to invalidate it later */
+            valid_input_on_gpu_only = FALSE;
 
-              input_format->cst = input_cst_cl;
-              // TODO: check if we need to wait for finished opencl pipe before we release cl_mem_input
-              // dt_dev_finish(pipe->devid);
-            }
+            input_format->cst = input_cst_cl;
+            // TODO: check if we need to wait for finished opencl pipe before we release cl_mem_input
+            // dt_dev_finish(pipe->devid);
           }
         }
 
