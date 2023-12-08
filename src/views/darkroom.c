@@ -2261,6 +2261,11 @@ void enter(dt_view_t *self)
 
   dt_print(DT_DEBUG_CONTROL, "[run_job+] 11 %f in darkroom mode\n", dt_get_wtime());
   dt_develop_t *dev = (dt_develop_t *)self->data;
+
+  // Make sure we don't start computing pipes until we have a proper history
+  dt_pthread_mutex_lock(&dev->pipe_mutex);
+  dt_pthread_mutex_lock(&dev->preview_pipe_mutex);
+
   if(!dev->form_gui)
   {
     dev->form_gui = (dt_masks_form_gui_t *)calloc(1, sizeof(dt_masks_form_gui_t));
@@ -2377,6 +2382,12 @@ void enter(dt_view_t *self)
   dt_iop_color_picker_init();
 
   dt_image_check_camera_missing_sample(&dev->image_storage);
+
+  dt_pthread_mutex_unlock(&dev->pipe_mutex);
+  dt_pthread_mutex_unlock(&dev->preview_pipe_mutex);
+
+  // Notify history module that history has changed
+  DT_DEBUG_CONTROL_SIGNAL_RAISE(darktable.signals, DT_SIGNAL_DEVELOP_HISTORY_CHANGE);
 }
 
 void leave(dt_view_t *self)

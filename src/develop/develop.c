@@ -499,13 +499,18 @@ float dt_dev_get_zoom_scale(dt_develop_t *dev, dt_dev_zoom_t zoom, int closeup_f
 
 int dt_dev_load_image(dt_develop_t *dev, const uint32_t imgid)
 {
-  if(_dt_dev_load_raw(dev, imgid)) return 1;
+  dt_pthread_mutex_lock(&dev->history_mutex);
+
+  if(_dt_dev_load_raw(dev, imgid))
+  {
+    dt_pthread_mutex_unlock(&dev->history_mutex);
+    return 1;
+  }
 
   // we need a global lock as the dev->iop set must not be changed until read history is terminated
   dev->iop = dt_iop_load_modules(dev);
-  dt_dev_read_history(dev);
+  dt_dev_read_history_ext(dev, dev->image_storage.id, FALSE);
 
-  dt_pthread_mutex_lock(&dev->history_mutex);
   dev->image_status = dev->preview_status = DT_DEV_PIXELPIPE_DIRTY;
   if(dev->pipe)
   {
@@ -548,7 +553,7 @@ void dt_dev_configure(dt_develop_t *dev, int wd, int ht)
     if(dev->image_storage.id > -1 && darktable.mipmap_cache)
     {
       // Only if it's not our initial configure call, aka if we already have an image
-      dt_dev_invalidate(dev, __FUNCTION__, __FILE__, __LINE__);
+      dt_atomic_set_int(&dev->pipe->shutdown, TRUE);
       dt_control_queue_redraw_center();
       dt_dev_refresh_ui_images(dev);
     }
@@ -1083,6 +1088,14 @@ void dt_dev_pop_history_items(dt_develop_t *dev, int32_t cnt)
     dev->pipe->changed |= DT_DEV_PIPE_REMOVE;
     dev->preview_pipe->changed |= DT_DEV_PIPE_REMOVE;
   }
+  else
+  {
+    dev->pipe->changed |= DT_DEV_PIPE_SYNCH;
+    dev->preview_pipe->changed |= DT_DEV_PIPE_SYNCH;
+  }
+
+  dt_atomic_set_int(&dev->pipe->shutdown, TRUE);
+  dt_atomic_set_int(&dev->preview_pipe->shutdown, TRUE);
 
   --darktable.gui->reset;
 
@@ -1176,7 +1189,9 @@ void dt_dev_write_history_ext(dt_develop_t *dev, const int imgid)
 
 void dt_dev_write_history(dt_develop_t *dev)
 {
+  dt_pthread_mutex_lock(&dev->history_mutex);
   dt_dev_write_history_ext(dev, dev->image_storage.id);
+  dt_pthread_mutex_unlock(&dev->history_mutex);
 }
 
 static int _dev_get_module_nb_records()
@@ -1910,9 +1925,6 @@ void dt_dev_read_history(dt_develop_t *dev)
   //dt_pthread_mutex_lock(&dev->history_mutex);
   dt_dev_read_history_ext(dev, dev->image_storage.id, FALSE);
   //dt_pthread_mutex_unlock(&dev->history_mutex);
-
-  if(dev->gui_attached)
-    DT_DEBUG_CONTROL_SIGNAL_RAISE(darktable.signals, DT_SIGNAL_DEVELOP_HISTORY_CHANGE);
 }
 
 void dt_dev_reprocess_center(dt_develop_t *dev)
