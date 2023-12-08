@@ -1701,7 +1701,9 @@ void dt_iop_gui_cleanup_module(dt_iop_module_t *module)
 void dt_iop_gui_update(dt_iop_module_t *module)
 {
   ++darktable.gui->reset;
-  dt_pthread_mutex_lock(&module->dev->history_mutex);
+  // FIXME: using locks here is the safe thing to do but results in deadlocks on some images.
+  // Most likely, some module calls in its gui_update() function another method locking that same lock.
+  //dt_pthread_mutex_lock(&module->dev->history_mutex);
 
   if(!dt_iop_is_hidden(module))
   {
@@ -1740,7 +1742,7 @@ void dt_iop_gui_update(dt_iop_module_t *module)
     dt_iop_show_hide_header_buttons(module, NULL, FALSE, FALSE);
     dt_guides_update_module_widget(module);
   }
-  dt_pthread_mutex_unlock(&module->dev->history_mutex);
+  //dt_pthread_mutex_unlock(&module->dev->history_mutex);
   --darktable.gui->reset;
 }
 
