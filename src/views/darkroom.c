@@ -2548,12 +2548,16 @@ void mouse_leave(dt_view_t *self)
   dt_control_set_mouse_over_id(dev->image_storage.id);
 
   // masks
-  if(dev->form_visible && dt_masks_events_mouse_leave(dev->gui_module));
+  gboolean handled = FALSE;
+  if(dev->form_visible && dt_masks_events_mouse_leave(dev->gui_module))
+    handled = TRUE;
   // module
   else if(dev->gui_module && dev->gui_module->mouse_leave
-          && dev->gui_module->mouse_leave(dev->gui_module));
+          && dev->gui_module->mouse_leave(dev->gui_module))
+    handled = TRUE;
 
-  dt_control_queue_redraw_center();
+  if(handled)
+    dt_control_queue_redraw_center();
 
   // reset any changes the selected plugin might have made.
   dt_control_change_cursor(GDK_LEFT_PTR);
