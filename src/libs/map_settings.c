@@ -56,7 +56,7 @@ typedef struct dt_lib_map_settings_t
   GtkWidget *images_thumb, *max_images_entry, *epsilon_factor, *min_images, *max_outline_nodes;
 } dt_lib_map_settings_t;
 
-int position()
+int position(const dt_lib_module_t *self)
 {
   return 990;
 }

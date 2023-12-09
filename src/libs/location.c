@@ -119,7 +119,7 @@ void gui_reset(dt_lib_module_t *self)
   clear_search(lib);
 }
 
-int position()
+int position(const dt_lib_module_t *self)
 {
   return 999;
 }

@@ -68,7 +68,7 @@ typedef struct dt_loc_op_t
   char *oldtagname;
 } dt_loc_op_t;
 
-int position()
+int position(const dt_lib_module_t *self)
 {
   return 995;
 }
