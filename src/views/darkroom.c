@@ -2389,6 +2389,8 @@ void enter(dt_view_t *self)
 
   // Notify history module that history has changed
   DT_DEBUG_CONTROL_SIGNAL_RAISE(darktable.signals, DT_SIGNAL_DEVELOP_HISTORY_CHANGE);
+
+  dt_dev_reprocess_preview(dev);
 }
 
 void leave(dt_view_t *self)

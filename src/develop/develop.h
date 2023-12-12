@@ -332,16 +332,22 @@ void dt_dev_process_preview(dt_develop_t *dev);
 
 // Lazy helpers that will update GUI pipelines (main image and small preview)
 // only when needed, and only the one(s) needed.
-void dt_dev_refresh_ui_images(dt_develop_t *dev);
+void dt_dev_refresh_ui_images_real(dt_develop_t *dev, const char *file, const int line);
+
+#define dt_dev_refresh_ui_images(dev) dt_dev_refresh_ui_images_real(dev, __FILE__, __LINE__);
 
 int dt_dev_load_image(dt_develop_t *dev, const uint32_t imgid);
 void dt_dev_reload_image(dt_develop_t *dev, const uint32_t imgid);
 void dt_dev_unload_image(dt_develop_t *dev);
 /** checks if provided imgid is the image currently in develop */
 int dt_dev_is_current_image(dt_develop_t *dev, uint32_t imgid);
+
 const dt_dev_history_item_t *dt_dev_get_history_item(dt_develop_t *dev, const char *op);
 void dt_dev_add_history_item_ext(dt_develop_t *dev, struct dt_iop_module_t *module, gboolean enable, gboolean no_image);
-void dt_dev_add_history_item(dt_develop_t *dev, struct dt_iop_module_t *module, gboolean enable);
+void dt_dev_add_history_item_real(dt_develop_t *dev, struct dt_iop_module_t *module, gboolean enable, const char *file, const int line);
+
+#define dt_dev_add_history_item(dev, module, enable) dt_dev_add_history_item_real(dev, module, enable, __FILE__, __LINE__)
+
 void dt_dev_add_masks_history_item_ext(dt_develop_t *dev, struct dt_iop_module_t *_module, gboolean _enable, gboolean no_image);
 void dt_dev_add_masks_history_item(dt_develop_t *dev, struct dt_iop_module_t *_module, gboolean enable);
 void dt_dev_reload_history_items(dt_develop_t *dev);
