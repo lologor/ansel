@@ -44,7 +44,6 @@ typedef struct dt_dev_history_item_t
   char multi_name[128];
   GList *forms; // snapshot of dt_develop_t->forms
   int num; // num of history on database
-  int32_t focus_hash;             // used to determine whether or not to start a new item or to merge down
 } dt_dev_history_item_t;
 
 typedef enum dt_dev_overexposed_colorscheme_t
@@ -150,7 +149,6 @@ typedef struct dt_develop_t
   int32_t gui_attached; // != 0 if the gui should be notified of changes in hist stack and modules should be
                         // gui_init'ed.
   int32_t gui_leaving;  // set if everything is scheduled to shut down.
-  int32_t focus_hash;   // determines whether to start a new history item or to merge down.
 
   dt_dev_pixelpipe_status_t image_status, preview_status;
   int32_t image_invalid_cnt;
