@@ -831,8 +831,16 @@ static void gui_init(dt_lib_import_t *d)
       NULL);
 
 #ifdef GDK_WINDOWING_QUARTZ
+// TODO: On MacOS (at least on version 13) the dialog windows doesn't behave as expected. The dialog
+// needs to have a parent window. "set_parent_window" wasn't working, so set_transient_for is 
+// the way to go. Still the window manager isn't dealing with the dialog properly, when the dialog 
+// is shifted outside its parent. The dialog isn't visible any longer but still listed as a window 
+// of the app.
   dt_osx_disallow_fullscreen(d->dialog);
+  gtk_window_set_transient_for(GTK_WINDOW(d->dialog), GTK_WINDOW(dt_ui_main_window(darktable.gui->ui)));
+  gtk_window_set_position(GTK_WINDOW(d->dialog), GTK_WIN_POS_CENTER_ON_PARENT);
 #endif
+
   gtk_window_set_default_size(GTK_WINDOW(d->dialog),
                               dt_conf_get_int("ui_last/import_dialog_width"),
                               dt_conf_get_int("ui_last/import_dialog_height"));
