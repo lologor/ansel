@@ -287,6 +287,9 @@ typedef struct dt_iop_module_t
 
   // introspection related data
   gboolean have_introspection;
+
+  // parameters hash
+  uint64_t hash;
 } dt_iop_module_t;
 
 typedef struct dt_action_target_t

@@ -389,6 +389,7 @@ int dt_iop_load_module_by_so(dt_iop_module_t *module, dt_iop_module_so_t *so, dt
 
   // now init the instance:
   module->init(module);
+  module->hash = 0;
 
   /* initialize blendop params and default values */
   module->blend_params = calloc(1, sizeof(dt_develop_blend_params_t));
@@ -723,8 +724,6 @@ dt_iop_module_t *dt_iop_gui_duplicate(dt_iop_module_t *base, gboolean copy_param
 
     // we save the new instance creation
     dt_dev_add_history_item(module->dev, module, TRUE);
-
-    dt_iop_gui_update_blending(module);
   }
 
   // we update show params for multi-instances for each other instances
@@ -1487,7 +1486,9 @@ void dt_iop_commit_blend_params(dt_iop_module_t *module, const dt_develop_blend_
   if(module->raster_mask.sink.source)
     g_hash_table_remove(module->raster_mask.sink.source->raster_mask.source.users, module);
 
-  memcpy(module->blend_params, blendop_params, sizeof(dt_develop_blend_params_t));
+  if(module->blend_params != blendop_params)
+    memcpy(module->blend_params, blendop_params, sizeof(dt_develop_blend_params_t));
+
   if(blendop_params->blend_cst == DEVELOP_BLEND_CS_NONE)
   {
     module->blend_params->blend_cst = dt_develop_blend_default_module_blend_colorspace(module);
@@ -1654,8 +1655,15 @@ uint64_t dt_iop_module_hash(dt_iop_module_t *module)
       dt_masks_form_t *grp = dt_masks_get_from_id(module->dev, module->blend_params->mask_id);
       hash = dt_masks_group_get_hash(hash, grp);
     }
-    hash = dt_hash(hash, (char *)module->blend_params, sizeof(dt_develop_blend_params_t));
+    else
+    {
+      // This should not happen.
+      fprintf(stdout, "[dt_iop_module_hash] WARNING: function is called on %s without inited develop.\n", module->op);
+    }
   }
+
+  // Blend params are always inited even when module doesn't support blending
+  hash = dt_hash(hash, (char *)module->blend_params, sizeof(dt_develop_blend_params_t));
 
   return hash;
 }
@@ -1668,10 +1676,7 @@ void dt_iop_commit_params(dt_iop_module_t *module, dt_iop_params_t *params,
   if(!piece->enabled) return;
 
   // 1. commit params
-
   memcpy(piece->blendop_data, blendop_params, sizeof(dt_develop_blend_params_t));
-  // this should be redundant! (but is not)
-  dt_iop_commit_blend_params(module, blendop_params);
 
 #ifdef HAVE_OPENCL
   // assume process_cl is ready, commit_params can overwrite this.
@@ -1694,9 +1699,29 @@ void dt_iop_commit_params(dt_iop_module_t *module, dt_iop_params_t *params,
   * because some pipeline params may be defined or sanitized at runtime (color profiles),
   * but some pipeline params are allocated on the stack (LUTs) from user params (graph nodes),
   * meaning they are not written in piece->data struct.
+  *
+  * NOTE : 
+  *   1. module->hash is set by history API and represents the internal state of user params with regard to history.
+  *      It is computed from module->params and module->blend_params.
+  *   2. piece->hash represents the internal state of params with regard to pipeline. It is computed from module->hash
+  *      and adds the contribution of runtime-computed params (computed in module's commit_params() methods) into account.
+  *   3. piece->global_hash represents the external state of the module, with regard to pipeline.
+  *      It is computed from piece->hash of the current module, and from the piece->hash of the previous module in
+  *      in a recursive fashion. As such, it represents the pipe-wise state of the module :
+  *         - the internal state of the module (internal params),
+  *         - the position of the module in the pipe,
+  *         - the state of the module's input.
+  *      When one module has its internal params changed (module->hash and piece->hash),
+  *      all the downstream modules will have their piece->global_hash changed too.
+  *   4. in pixelpipe_hb.c, we compute the _node_hash() representing the external pipeline state with regard to pipeline cache lines.
+  *      It is computed from piece->global_hash and takes into account the output buffer size of the pipeline,
+  *      along with preview bypasses (mask previews and such) for GUI pipelines.
+  *      This high-level hash is used to synchronize pipeline states with pipeline cache lines.
+  *      When no cache line matching this _node_hash() is found, the pipe is recomputed starting from the
+  *      most-downstream module which _node_hash() is known in cache, to spare computations, or recomputed entirely if
+  *      the cache is empty or entirely out-of-sync.
   */
-  uint64_t hash = dt_iop_module_hash(module);
-  piece->hash = piece->global_hash = dt_hash(hash, (char *)piece->data, piece->data_size);
+  piece->hash = piece->global_hash = dt_hash(module->hash, (char *)piece->data, piece->data_size);
 
   dt_print(DT_DEBUG_PARAMS, "[params] commit for %s in pipe %i with hash %lu\n", module->op, pipe->type, (long unsigned int)piece->hash);
 }
@@ -2982,6 +3007,8 @@ void dt_iop_gui_changed(dt_action_t *action, GtkWidget *widget, gpointer data)
   dt_iop_color_picker_reset(module, TRUE);
 
   dt_dev_add_history_item(darktable.develop, module, TRUE);
+
+  dt_iop_gui_set_enable_button(module);
 }
 
 enum

@@ -234,8 +234,6 @@ void dt_dev_pixelpipe_cleanup(dt_dev_pixelpipe_t *pipe)
 
 void dt_dev_pixelpipe_cleanup_nodes(dt_dev_pixelpipe_t *pipe)
 {
-  dt_atomic_set_int(&pipe->shutdown,TRUE); // tell pipe that it should shut itself down if currently running
-
   // FIXME: either this or all process() -> gdk mutices have to be changed!
   //        (this is a circular dependency on busy_mutex and the gdk mutex)
   // [[does the above still apply?]]
@@ -271,8 +269,6 @@ void dt_dev_pixelpipe_cleanup_nodes(dt_dev_pixelpipe_t *pipe)
 void dt_dev_pixelpipe_create_nodes(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev)
 {
   dt_pthread_mutex_lock(&pipe->busy_mutex); // block until pipe is idle
-  // clear any pending shutdown request
-  dt_atomic_set_int(&pipe->shutdown,FALSE);
   // check that the pipe was actually properly cleaned up after the last run
   g_assert(pipe->nodes == NULL);
   g_assert(pipe->iop == NULL);
@@ -1032,6 +1028,14 @@ static void collect_histogram_on_CPU(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev
 
 #define KILL_SWITCH_ABORT if(dt_atomic_get_int(&pipe->shutdown)) return 1;
 
+#define KILL_SWITCH_AND_FLUSH_CACHE {                         \
+  if(dt_atomic_get_int(&pipe->shutdown))                      \
+  {                                                           \
+    dt_dev_pixelpipe_cache_invalidate(&(pipe->cache), input); \
+    return 1;                                                 \
+  }                                                           \
+}
+
 static int pixelpipe_process_on_CPU(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev,
                                     float *input, dt_iop_buffer_dsc_t *input_format, const dt_iop_roi_t *roi_in,
                                     void **output, dt_iop_buffer_dsc_t **out_format, const dt_iop_roi_t *roi_out,
@@ -1629,7 +1633,7 @@ static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *
                                           g_list_previous(modules), g_list_previous(pieces), pos - 1);
   }
 
-  KILL_SWITCH_ABORT
+  KILL_SWITCH_ABORT;
 
   if(module) g_strlcpy(module_name, module->op, MIN(sizeof(module_name), sizeof(module->op)));
   get_output_format(module, pipe, piece, dev, *out_format);
@@ -1651,6 +1655,7 @@ static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *
     // we're done! as colorpicker/scopes only work on gamma iop
     // input -- which is unavailable via cache -- there's no need to
     // run these
+    KILL_SWITCH_ABORT;
     return 0;
   }
 
@@ -1712,7 +1717,6 @@ static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *
     }
 
     dt_show_times_f(&start, "[dev_pixelpipe]", "initing base buffer [%s]", _pipe_type_to_str(pipe->type));
-
     return 0;
   }
 
@@ -1734,6 +1738,8 @@ static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *
   if(dt_dev_pixelpipe_process_rec(pipe, dev, &input, &cl_mem_input, &input_format, &roi_in,
                                   g_list_previous(modules), g_list_previous(pieces), pos - 1))
     return 1;
+
+  KILL_SWITCH_AND_FLUSH_CACHE;
 
   const size_t in_bpp = dt_iop_buffer_dsc_to_bpp(input_format);
 
@@ -1837,6 +1843,8 @@ static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *
                                module, piece, &tiling, &pixelpipe_flow))
     return 1;
 #endif // HAVE_OPENCL
+
+  KILL_SWITCH_AND_FLUSH_CACHE;
 
   char histogram_log[32] = "";
   if(!(pixelpipe_flow & PIXELPIPE_FLOW_HISTOGRAM_NONE))
@@ -1972,6 +1980,7 @@ static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *
                                            display_profile, display_profile);
   }
 
+  KILL_SWITCH_AND_FLUSH_CACHE;
   return 0;
 }
 

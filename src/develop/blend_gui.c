@@ -1306,7 +1306,6 @@ static gboolean _blendop_blendif_invert(GtkButton *button, GdkEventButton *event
   module->blend_params->blendif ^= toggle_mask;
   module->blend_params->mask_combine ^= DEVELOP_COMBINE_MASKS_POS;
   module->blend_params->mask_combine ^= DEVELOP_COMBINE_INCL;
-  dt_iop_gui_update_blending(module);
   dt_dev_add_history_item(darktable.develop, module, TRUE);
 
   return TRUE;
@@ -2233,7 +2232,7 @@ void dt_iop_gui_init_blendif(GtkBox *blendw, dt_iop_module_t *module)
   }
 }
 
-void dt_iop_gui_update_masks(dt_iop_module_t *module)
+void dt_masks_iop_update(dt_iop_module_t *module)
 {
   dt_iop_gui_blend_data_t *bd = (dt_iop_gui_blend_data_t *)module->blend_data;
   dt_develop_blend_params_t *bp = module->blend_params;
@@ -2260,6 +2259,7 @@ void dt_iop_gui_update_masks(dt_iop_module_t *module)
     dt_masks_set_edit_mode(module, DT_MASKS_EDIT_OFF);
   }
   dt_bauhaus_combobox_set(bd->masks_combo, 0);
+  gtk_widget_queue_draw(bd->masks_combo);
 
   if(bd->masks_support)
   {
@@ -2729,7 +2729,7 @@ void dt_iop_gui_update_blending(dt_iop_module_t *module)
       || _blendif_are_output_channels_used(module->blend_params, bd->csp);
 
   dt_iop_gui_update_blendif(module);
-  dt_iop_gui_update_masks(module);
+  dt_masks_iop_update(module);
   dt_iop_gui_update_raster(module);
 
   /* now show hide controls as required */

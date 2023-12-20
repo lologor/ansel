@@ -44,6 +44,8 @@ typedef struct dt_dev_history_item_t
   char multi_name[128];
   GList *forms; // snapshot of dt_develop_t->forms
   int num; // num of history on database
+
+  uint64_t hash; // module params hash.
 } dt_dev_history_item_t;
 
 typedef enum dt_dev_overexposed_colorscheme_t
@@ -166,7 +168,7 @@ typedef struct dt_develop_t
 
   // image processing pipeline with caching
   struct dt_dev_pixelpipe_t *pipe, *preview_pipe;
-  dt_pthread_mutex_t pipe_mutex, preview_pipe_mutex; // these are locked while the pipes are still in use
+  dt_pthread_mutex_t pipe_mutex; // these are locked while the pipes are still in use
 
   // image under consideration, which
   // is copied each time an image is changed. this means we have some information

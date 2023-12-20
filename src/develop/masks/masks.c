@@ -1392,7 +1392,6 @@ static void _menu_add_shape(struct dt_iop_module_t *module, dt_masks_type_t type
   dt_masks_change_form_gui(form);
   darktable.develop->form_gui->creation = TRUE;
   darktable.develop->form_gui->creation_module = module;
-  dt_control_queue_redraw_center();
 }
 
 static void _menu_add_exist(dt_iop_module_t *module, int formid)
@@ -1563,12 +1562,14 @@ void dt_masks_iop_value_changed_callback(GtkWidget *widget, struct dt_iop_module
   {
     ++darktable.gui->reset;
     dt_bauhaus_combobox_set(bd->masks_combo, 0);
+    dt_masks_iop_update(module);
     --darktable.gui->reset;
     return;
   }
   if(sel > 0)
   {
     int val = bd->masks_combo_ids[sel];
+    // FIXME : these values should use binary enums
     if(val == -1000000)
     {
       // delete all masks
@@ -1610,7 +1611,6 @@ void dt_masks_iop_value_changed_callback(GtkWidget *widget, struct dt_iop_module
         // and we ensure that we are in edit mode
         //dt_dev_add_history_item(darktable.develop, module, TRUE);
         dt_dev_add_masks_history_item(darktable.develop, module, TRUE);
-        dt_masks_iop_update(module);
         dt_masks_set_edit_mode(module, DT_MASKS_EDIT_FULL);
       }
     }
@@ -1624,14 +1624,8 @@ void dt_masks_iop_value_changed_callback(GtkWidget *widget, struct dt_iop_module
   }
   // we update the combo line
   dt_masks_iop_update(module);
-}
-
-void dt_masks_iop_update(struct dt_iop_module_t *module)
-{
-  if(!module) return;
-
-  dt_iop_gui_update(module);
-  dt_iop_gui_update_masks(module);
+  dt_control_queue_redraw_center();
+  dt_masks_update_image(module->dev);
 }
 
 void dt_masks_form_remove(struct dt_iop_module_t *module, dt_masks_form_t *grp, dt_masks_form_t *form)

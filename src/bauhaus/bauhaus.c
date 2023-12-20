@@ -1727,13 +1727,15 @@ void _combobox_set(GtkWidget *widget, const int pos, gboolean timeout)
 
     gtk_widget_queue_draw(GTK_WIDGET(w));
 
-    if(!darktable.gui->reset && !d->timeout_handle)
+    if(!darktable.gui->reset)
     {
-      const int delay
-          = timeout ? CLAMP(darktable.develop->average_delay * 3 / 2, DT_BAUHAUS_SLIDER_VALUE_CHANGED_DELAY_MIN,
-                            DT_BAUHAUS_SLIDER_VALUE_CHANGED_DELAY_MAX)
-                    : 0;
-      d->timeout_handle = g_timeout_add(delay, _delayed_combobox_commit, w);
+      if(d->timeout_handle)
+      {
+        g_source_remove(d->timeout_handle);
+        d->timeout_handle = 0;
+      }
+      // TODO: map the timeout to an user config ? Arguably, that value will be higher for senior citizen
+      d->timeout_handle = g_timeout_add(350, _delayed_combobox_commit, w);
     }
   }
 }
@@ -2898,13 +2900,15 @@ static void dt_bauhaus_slider_set_normalized(struct dt_bauhaus_widget_t *w, floa
     d->min, d->max, d->pos, d->factor, d->pos);
 #endif
 
-    if(!darktable.gui->reset && raise && !d->timeout_handle)
+    if(!darktable.gui->reset && raise)
     {
-      const int delay
-          = timeout ? CLAMP(darktable.develop->average_delay * 3 / 2, DT_BAUHAUS_SLIDER_VALUE_CHANGED_DELAY_MIN,
-                            DT_BAUHAUS_SLIDER_VALUE_CHANGED_DELAY_MAX)
-                    : 0;
-      d->timeout_handle = g_timeout_add(delay, _delayed_slider_commit, w);
+      if(d->timeout_handle)
+      {
+        g_source_remove(d->timeout_handle);
+        d->timeout_handle = 0;
+      }
+      // TODO: map the timeout to an user config ? Arguably, that value will be higher for senior citizen
+      d->timeout_handle = g_timeout_add(350, _delayed_slider_commit, w);
     }
   }
 }
