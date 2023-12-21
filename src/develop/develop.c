@@ -285,6 +285,13 @@ restart:
     dt_mipmap_cache_release(darktable.mipmap_cache, &buf);
     return;
   }
+
+  restart:;
+  // adjust pipeline according to changed flag set by {add,pop}_history_item.
+  // this locks dev->history_mutex.
+  dt_times_t start;
+  dt_get_times(&start);
+
   // adjust pipeline according to changed flag set by {add,pop}_history_item.
   // this locks dev->history_mutex.
   dt_times_t start;
