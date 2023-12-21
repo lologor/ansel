@@ -311,7 +311,7 @@ void dt_dev_process_preview_job(dt_develop_t *dev)
     return;
   }
 
-restart:
+  restart:;
   // adjust pipeline according to changed flag set by {add,pop}_history_item.
   // this locks dev->history_mutex.
   dt_times_t start;
@@ -383,7 +383,7 @@ void dt_dev_process_image_job(dt_develop_t *dev)
     return;
   }
 
-restart:
+restart:;
   dt_times_t start;
   dt_get_times(&start);
 
