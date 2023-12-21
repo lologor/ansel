@@ -120,18 +120,20 @@ int dt_dev_pixelpipe_init_dummy(dt_dev_pixelpipe_t *pipe, int32_t width, int32_t
 
 int dt_dev_pixelpipe_init_preview(dt_dev_pixelpipe_t *pipe)
 {
-  // don't know which buffer size we're going to need, set to 0 (will be alloced on demand)
+  // Init with the size of MIPMAP_F
   int32_t cachelines = MAX(dt_conf_get_int("cachelines"), 8);
-  const int res = dt_dev_pixelpipe_init_cached(pipe, 0, cachelines);
+  const int res = dt_dev_pixelpipe_init_cached(pipe, sizeof(float) * 4 * 720 * 450, cachelines);
   pipe->type = DT_DEV_PIXELPIPE_PREVIEW;
   return res;
 }
 
 int dt_dev_pixelpipe_init(dt_dev_pixelpipe_t *pipe)
 {
-  // don't know which buffer size we're going to need, set to 0 (will be alloced on demand)
+  // Init with the size of a screen.
   int32_t cachelines = MAX(dt_conf_get_int("cachelines"), 8);
-  const int res = dt_dev_pixelpipe_init_cached(pipe, 0, cachelines);
+  const int width = DT_PIXEL_APPLY_DPI(1920);
+  const int height = DT_PIXEL_APPLY_DPI(1080);
+  const int res = dt_dev_pixelpipe_init_cached(pipe, sizeof(float) * 4 * width * height, cachelines);
   pipe->type = DT_DEV_PIXELPIPE_FULL;
   return res;
 }
@@ -366,13 +368,6 @@ void dt_pixelpipe_get_global_hash(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev)
       // Combine with the previous modules hashes
       hash = dt_hash(hash, (const char *)&piece->hash, sizeof(uint64_t));
 
-      // Factor-in the ROI out sizes
-      hash = dt_hash(hash, (const char *)&piece->processed_roi_out, sizeof(dt_iop_roi_t));
-
-      // Factor-in the instance of the module and its IOP order
-      hash = dt_hash(hash, (const char *)&piece->module->instance, sizeof(int32_t));
-      hash = dt_hash(hash, (const char *)&piece->module->iop_order, sizeof(int));
-
       if(pipe->type & DT_DEV_PIXELPIPE_PREVIEW)
       {
         // Preview-centric tweaks : color-pickers and histograms
@@ -531,6 +526,7 @@ void dt_dev_pixelpipe_change(dt_dev_pixelpipe_t *pipe, struct dt_develop_t *dev)
   dt_get_times(&start);
 
   dt_pthread_mutex_lock(&dev->history_mutex);
+  dt_atomic_set_int(&pipe->shutdown, FALSE);
 
   dt_print(DT_DEBUG_DEV, "[dt_dev_pixelpipe_change] pipeline state changing for pipe %i, flag %i\n", pipe->type, pipe->changed);
 

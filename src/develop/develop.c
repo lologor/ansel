@@ -202,12 +202,12 @@ void dt_dev_refresh_ui_images_real(dt_develop_t *dev)
   // which is handled everytime history is changed,
   // including when initing a new pipeline (from scratch or from user history).
   // Benefit is atomics are de-facto thread-safe.
-  if(dt_atomic_get_int(&dev->pipe->shutdown))
+  if(dt_atomic_get_int(&dev->pipe->shutdown) && !dev->pipe->processing)
   {
     dt_atomic_set_int(&dev->pipe->shutdown, FALSE);
     dt_dev_process_image(dev);
   }
-  if(dt_atomic_get_int(&dev->preview_pipe->shutdown))
+  if(dt_atomic_get_int(&dev->preview_pipe->shutdown) && !dev->preview_pipe->processing)
   {
     dt_atomic_set_int(&dev->preview_pipe->shutdown, FALSE);
     dt_dev_process_preview(dev);
@@ -310,6 +310,8 @@ void dt_dev_process_preview_job(dt_develop_t *dev)
     dt_pthread_mutex_unlock(&dev->pipe_mutex);
     return;
   }
+
+restart:
   // adjust pipeline according to changed flag set by {add,pop}_history_item.
   // this locks dev->history_mutex.
   dt_times_t start;
@@ -319,13 +321,17 @@ void dt_dev_process_preview_job(dt_develop_t *dev)
          dev->preview_pipe, dev, 0, 0, dev->preview_pipe->processed_width,
          dev->preview_pipe->processed_height, 1.f))
   {
-    // interrupted because image changed?
-    dt_control_log_busy_leave();
-    dt_control_toast_busy_leave();
-    dev->preview_status = DT_DEV_PIXELPIPE_INVALID;
-    dt_mipmap_cache_release(darktable.mipmap_cache, &buf);
-    dt_pthread_mutex_unlock(&dev->pipe_mutex);
-    return;
+     if(dt_atomic_get_int(&dev->preview_pipe->shutdown))
+      goto restart; // restart only if pipeline was shutdown, aka no error
+    else
+    {
+      dt_control_log_busy_leave();
+      dt_control_toast_busy_leave();
+      dev->preview_status = DT_DEV_PIXELPIPE_INVALID;
+      dt_mipmap_cache_release(darktable.mipmap_cache, &buf);
+      dt_pthread_mutex_unlock(&dev->pipe_mutex);
+      return;
+    }
   }
 
   dev->preview_status = DT_DEV_PIXELPIPE_VALID;
@@ -353,9 +359,6 @@ void dt_dev_process_image_job(dt_develop_t *dev)
   // let gui know to draw preview instead of us, if it's there:
   dev->image_status = DT_DEV_PIXELPIPE_RUNNING;
 
-  dt_times_t start;
-  dt_get_times(&start);
-
   dt_mipmap_buffer_t buf;
   dt_mipmap_cache_get(darktable.mipmap_cache, &buf, dev->image_storage.id, DT_MIPMAP_FULL, DT_MIPMAP_BLOCKING, 'r');
 
@@ -370,11 +373,6 @@ void dt_dev_process_image_job(dt_develop_t *dev)
 
   dt_dev_pixelpipe_set_input(dev->pipe, dev, (float *)buf.buf, buf.width, buf.height, 1.0);
 
-  dt_dev_zoom_t zoom;
-  float zoom_x = 0.0f, zoom_y = 0.0f, scale = 0.0f;
-  int window_width, window_height, x, y, closeup;
-  dt_dev_pixelpipe_change_t pipe_changed;
-
   if(dev->gui_leaving)
   {
     dt_control_log_busy_leave();
@@ -385,16 +383,20 @@ void dt_dev_process_image_job(dt_develop_t *dev)
     return;
   }
 
+restart:
+  dt_times_t start;
+  dt_get_times(&start);
+
   // adjust pipeline according to changed flag set by {add,pop}_history_item.
   // dt_dev_pixelpipe_change() will clear the changed value
-  pipe_changed = dev->pipe->changed;
-  // this locks dev->history_mutex.
+  dt_dev_pixelpipe_change_t pipe_changed = dev->pipe->changed;
+  // this locks dev->history_mutex and resets pipe->shutdown
   dt_dev_pixelpipe_change(dev->pipe, dev);
   // determine scale according to new dimensions
-  zoom = dt_control_get_dev_zoom();
-  closeup = dt_control_get_dev_closeup();
-  zoom_x = dt_control_get_dev_zoom_x();
-  zoom_y = dt_control_get_dev_zoom_y();
+  dt_dev_zoom_t zoom = dt_control_get_dev_zoom();
+  int closeup = dt_control_get_dev_closeup();
+  float zoom_x = dt_control_get_dev_zoom_x();
+  float zoom_y = dt_control_get_dev_zoom_y();
   // if just changed to an image with a different aspect ratio or
   // altered image orientation, the prior zoom xy could now be beyond
   // the image boundary
@@ -405,9 +407,9 @@ void dt_dev_process_image_job(dt_develop_t *dev)
     dt_control_set_dev_zoom_y(zoom_y);
   }
 
-  scale = dt_dev_get_zoom_scale(dev, zoom, 1.0f, 0) * darktable.gui->ppd;
-  window_width = dev->width * darktable.gui->ppd;
-  window_height = dev->height * darktable.gui->ppd;
+  float scale = dt_dev_get_zoom_scale(dev, zoom, 1.0f, 0) * darktable.gui->ppd;
+  int window_width = dev->width * darktable.gui->ppd;
+  int window_height = dev->height * darktable.gui->ppd;
   if(closeup)
   {
     window_width /= 1<<closeup;
@@ -415,18 +417,24 @@ void dt_dev_process_image_job(dt_develop_t *dev)
   }
   const int wd = MIN(window_width, dev->pipe->processed_width * scale);
   const int ht = MIN(window_height, dev->pipe->processed_height * scale);
-  x = MAX(0, scale * dev->pipe->processed_width  * (.5 + zoom_x) - wd / 2);
-  y = MAX(0, scale * dev->pipe->processed_height * (.5 + zoom_y) - ht / 2);
+  int x = MAX(0, scale * dev->pipe->processed_width  * (.5 + zoom_x) - wd / 2);
+  int y = MAX(0, scale * dev->pipe->processed_height * (.5 + zoom_y) - ht / 2);
 
   dt_get_times(&start);
+
   if(dt_dev_pixelpipe_process(dev->pipe, dev, x, y, wd, ht, scale))
   {
-    dt_control_log_busy_leave();
-    dt_control_toast_busy_leave();
-    dev->image_status = DT_DEV_PIXELPIPE_INVALID;
-    dt_mipmap_cache_release(darktable.mipmap_cache, &buf);
-    dt_pthread_mutex_unlock(&dev->pipe_mutex);
-    return;
+    if(dt_atomic_get_int(&dev->pipe->shutdown))
+      goto restart; // restart only if pipeline was shutdown, aka no error
+    else
+    {
+      dt_control_log_busy_leave();
+      dt_control_toast_busy_leave();
+      dev->image_status = DT_DEV_PIXELPIPE_INVALID;
+      dt_mipmap_cache_release(darktable.mipmap_cache, &buf);
+      dt_pthread_mutex_unlock(&dev->pipe_mutex);
+      return;
+    }
   }
 
   dt_show_times(&start, "[dev_process_image] pixel pipeline processing");
@@ -574,8 +582,8 @@ void dt_dev_configure(dt_develop_t *dev, int wd, int ht)
 
   if(dev->width != wd || dev->height != ht)
   {
-    dev->width = wd;
-    dev->height = ht;
+    dev->width = DT_PIXEL_APPLY_DPI(wd);
+    dev->height = DT_PIXEL_APPLY_DPI(ht);
     dt_dev_invalidate_zoom(dev);
 
     if(dev->image_storage.id > -1 && darktable.mipmap_cache)
@@ -583,7 +591,6 @@ void dt_dev_configure(dt_develop_t *dev, int wd, int ht)
       // Only if it's not our initial configure call, aka if we already have an image
       dt_control_queue_redraw_center();
       dt_dev_refresh_ui_images(dev);
-      dt_dev_reprocess_center(dev);
     }
   }
 }
@@ -739,6 +746,8 @@ static void _dev_add_history_item_ext(dt_develop_t *dev, dt_iop_module_t *module
       dev->preview_pipe->changed |= DT_DEV_PIPE_TOP_CHANGED;
     }
   }
+
+  fprintf(stdout, "[_dev_add_history_item_ext] invalidating history\n");
 
   g_strlcpy(hist->multi_name, module->multi_name, sizeof(hist->multi_name));
   memcpy(hist->params, module->params, module->params_size);

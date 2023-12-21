@@ -161,11 +161,6 @@ typedef struct dt_develop_t
   // width, height: dimensions of window
   int32_t width, height;
 
-  // Contains the source image to work with. Shared between pipes to
-  // mutualize I/O
-  dt_mipmap_buffer_t full_buf;
-  dt_mipmap_buffer_t small_buf;
-
   // image processing pipeline with caching
   struct dt_dev_pixelpipe_t *pipe, *preview_pipe;
   dt_pthread_mutex_t pipe_mutex; // these are locked while the pipes are still in use
