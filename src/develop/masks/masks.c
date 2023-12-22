@@ -1469,9 +1469,9 @@ void dt_masks_iop_combo_populate(GtkWidget *w, struct dt_iop_module_t **m)
   dt_iop_gui_blend_data_t *bd = (dt_iop_gui_blend_data_t *)module->blend_data;
 
   // we determine a higher approx of the entry number
-  guint nbe = 5 + g_list_length(darktable.develop->forms) + g_list_length(darktable.develop->iop);
+  guint nbe = 5 + g_list_length(module->dev->forms) + g_list_length(module->dev->iop);
   free(bd->masks_combo_ids);
-  bd->masks_combo_ids = malloc( sizeof(int) *nbe);
+  bd->masks_combo_ids = malloc(sizeof(int) * nbe);
 
   int *cids = bd->masks_combo_ids;
   GtkWidget *combo = bd->masks_combo;
@@ -1483,12 +1483,11 @@ void dt_masks_iop_combo_populate(GtkWidget *w, struct dt_iop_module_t **m)
   }
 
   int pos = 0;
-  cids[pos++] = 0; // nothing to do for the first entry (already here)
-
+  cids[pos] = 0; // nothing to do for the first entry (already here)
+  pos++;
 
   // add existing shapes
-  int nb = 0;
-  for(GList *forms = darktable.develop->forms; forms; forms = g_list_next(forms))
+  for(GList *forms = module->dev->forms; forms; forms = g_list_next(forms))
   {
     dt_masks_form_t *form = (dt_masks_form_t *)forms->data;
     if((form->type & (DT_MASKS_CLONE|DT_MASKS_NON_CLONE)) || form->formid == module->blend_params->mask_id)
@@ -1498,7 +1497,7 @@ void dt_masks_iop_combo_populate(GtkWidget *w, struct dt_iop_module_t **m)
 
     // we search were this form is used in the current module
     int used = 0;
-    dt_masks_form_t *grp = _group_from_module(darktable.develop, module);
+    dt_masks_form_t *grp = _group_from_module(module->dev, module);
     if(grp && (grp->type & DT_MASKS_GROUP))
     {
       for(GList *pts = grp->points; pts; pts = g_list_next(pts))
@@ -1513,21 +1512,15 @@ void dt_masks_iop_combo_populate(GtkWidget *w, struct dt_iop_module_t **m)
     }
     if(!used)
     {
-      if(nb == 0)
-      {
-        dt_bauhaus_combobox_add_section(combo, _("add existing shape"));
-        cids[pos++] = 0; // nothing to do
-      }
       dt_bauhaus_combobox_add(combo, form->name);
-      cids[pos++] = form->formid;
-      nb++;
+      cids[pos] = form->formid;
+      pos++;
     }
   }
 
   // masks from other iops
-  nb = 0;
   int pos2 = 1;
-  for(GList *modules = darktable.develop->iop; modules; modules = g_list_next(modules))
+  for(GList *modules = module->dev->iop; modules; modules = g_list_next(modules))
   {
     dt_iop_module_t *other_mod = (dt_iop_module_t *)modules->data;
     if((other_mod != module) && (other_mod->flags() & IOP_FLAGS_SUPPORTS_BLENDING) && !(other_mod->flags() & IOP_FLAGS_NO_MASKS))
@@ -1535,16 +1528,11 @@ void dt_masks_iop_combo_populate(GtkWidget *w, struct dt_iop_module_t **m)
       dt_masks_form_t *grp = _group_from_module(darktable.develop, other_mod);
       if(grp)
       {
-        if(nb == 0)
-        {
-          dt_bauhaus_combobox_add_section(combo, _("use same shapes as"));
-          cids[pos++] = 0; // nothing to do
-        }
         gchar *module_label = dt_history_item_get_name(other_mod);
-        dt_bauhaus_combobox_add(combo, module_label);
+        dt_bauhaus_combobox_add(combo, g_strdup_printf(_("reuse shapes from %s"), module_label));
         g_free(module_label);
-        cids[pos++] = -1 * pos2;
-        nb++;
+        cids[pos] = -1 * pos2;
+        pos++;
       }
     }
     pos2++;
@@ -1558,14 +1546,6 @@ void dt_masks_iop_value_changed_callback(GtkWidget *widget, struct dt_iop_module
 
   int sel = dt_bauhaus_combobox_get(bd->masks_combo);
   if(sel == 0) return;
-  if(sel == 1)
-  {
-    ++darktable.gui->reset;
-    dt_bauhaus_combobox_set(bd->masks_combo, 0);
-    dt_masks_iop_update(module);
-    --darktable.gui->reset;
-    return;
-  }
   if(sel > 0)
   {
     int val = bd->masks_combo_ids[sel];

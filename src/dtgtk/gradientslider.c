@@ -334,8 +334,6 @@ static gboolean _gradient_slider_motion_notify(GtkWidget *widget, GdkEventMotion
 
   if(gslider->is_dragging == TRUE && gslider->selected != -1 && gslider->do_reset == FALSE)
   {
-    assert(gslider->timeout_handle > 0);
-
     const gdouble newposition = _get_position_from_screen(widget, event->x);
     const gint direction = gslider->position[gslider->selected] <= newposition ? MOVE_RIGHT : MOVE_LEFT;
 

@@ -394,12 +394,6 @@ static GdkRGBA *default_color_assign()
   return gdk_rgba_copy(&color);
 }
 
-void dt_bauhaus_widget_set_section(GtkWidget *widget, const gboolean is_section)
-{
-  struct dt_bauhaus_widget_t *w = DT_BAUHAUS_WIDGET(widget);
-  w->is_section = is_section;
-}
-
 // Vertical alignment of text in its bounding box
 typedef enum _bh_valign_t
 {
@@ -849,7 +843,6 @@ void dt_bauhaus_load_theme()
   GtkWidget *root_window = dt_ui_main_window(darktable.gui->ui);
   GtkStyleContext *ctx = gtk_style_context_new();
   GtkWidgetPath *path = gtk_widget_path_new();
-  const int pos = gtk_widget_path_append_type(path, GTK_TYPE_WIDGET);
   gtk_style_context_set_path(ctx, path);
   gtk_style_context_set_screen (ctx, gtk_widget_get_screen(root_window));
 
@@ -890,11 +883,6 @@ void dt_bauhaus_load_theme()
     pango_font_description_free(darktable.bauhaus->pango_font_desc);
 
   darktable.bauhaus->pango_font_desc = pfont;
-
-  // now get the font for the section labels
-  gtk_widget_path_iter_add_class(path, pos, "dt_section_label");
-  gtk_style_context_set_path(ctx, path);
-
   gtk_widget_path_free(path);
 
   cairo_surface_t *cst = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 128, 128);
@@ -1470,11 +1458,6 @@ void dt_bauhaus_combobox_add_list(GtkWidget *widget, dt_action_t *action, const 
 void dt_bauhaus_combobox_add(GtkWidget *widget, const char *text)
 {
   dt_bauhaus_combobox_add_full(widget, text, DT_BAUHAUS_COMBOBOX_ALIGN_RIGHT, NULL, NULL, TRUE);
-}
-
-void dt_bauhaus_combobox_add_section(GtkWidget *widget, const char *text)
-{
-  dt_bauhaus_combobox_add_full(widget, text, DT_BAUHAUS_COMBOBOX_ALIGN_LEFT, NULL, NULL, FALSE);
 }
 
 void dt_bauhaus_combobox_add_aligned(GtkWidget *widget, const char *text, dt_bauhaus_combobox_alignment_t align)

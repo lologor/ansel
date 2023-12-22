@@ -1232,6 +1232,7 @@ void gui_reset(dt_lib_module_t *self)
     dt_dev_modulegroups_set(darktable.develop, dt_dev_modulegroups_get(darktable.develop));
 
     dt_control_queue_redraw_center();
+    dt_dev_refresh_ui_images(darktable.develop);
   }
 }
 

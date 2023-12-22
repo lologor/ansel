@@ -129,10 +129,18 @@ int dt_dev_pixelpipe_init_preview(dt_dev_pixelpipe_t *pipe)
 
 int dt_dev_pixelpipe_init(dt_dev_pixelpipe_t *pipe)
 {
-  // Init with the size of a screen.
+  // Init with the max size of a screen.
   int32_t cachelines = MAX(dt_conf_get_int("cachelines"), 8);
-  const int width = DT_PIXEL_APPLY_DPI(1920);
-  const int height = DT_PIXEL_APPLY_DPI(1080);
+  gint width = 1920;
+  gint height = 1080;
+
+  if(darktable.gui)
+  {
+    gtk_window_get_size(GTK_WINDOW(dt_ui_main_window(darktable.gui->ui)), &width, &height);
+    width *= darktable.gui->ppd;
+    height *= darktable.gui->ppd;
+  }
+
   const int res = dt_dev_pixelpipe_init_cached(pipe, sizeof(float) * 4 * width * height, cachelines);
   pipe->type = DT_DEV_PIXELPIPE_FULL;
   return res;
@@ -276,7 +284,11 @@ void dt_dev_pixelpipe_create_nodes(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev)
   g_assert(pipe->iop == NULL);
   g_assert(pipe->iop_order_list == NULL);
   pipe->iop_order_list = dt_ioppr_iop_order_copy_deep(dev->iop_order_list);
+
   // for all modules in dev:
+  // TODO: don't add deprecated modules that are not enabled are not added to pipeline.
+  // currently, that loads 84 modules of which a solid third are not used anymore.
+  // if(module->flags() & IOP_FLAGS_DEPRECATED && !(module->enabled)) continue;
   pipe->iop = g_list_copy(dev->iop);
   for(GList *modules = pipe->iop; modules; modules = g_list_next(modules))
   {
@@ -300,6 +312,7 @@ void dt_dev_pixelpipe_create_nodes(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev)
     piece->data = NULL;
     piece->hash = 0;
     piece->global_hash = 0;
+    piece->bypass_cache = FALSE;
     piece->process_cl_ready = 0;
     piece->process_tiling_ready = 0;
     piece->raster_masks = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, dt_free_align_ptr);
@@ -324,26 +337,16 @@ static uint64_t _node_hash(dt_dev_pixelpipe_t *pipe, const dt_dev_pixelpipe_iop_
 {
   // to be called at runtime, not at pipe init.
 
-  uint64_t hash = piece
-                    ? piece->global_hash
-                    : dt_hash(_default_pipe_hash(pipe), (const char *)&pos, sizeof(int));
+  // Only at the first step of pipe, we don't have a module because we init the base buffer.
+  uint64_t hash = piece ? piece->global_hash : _default_pipe_hash(pipe);
 
-  // For panned/zoomed preview in darkroom, the global hash doesn't account for
-  // coordinates changes in viewport, since roi_out computed from commit_params
-  // accounts only for geometric distortions (perspective, crop, liquify).
-  // The roi_out passed from here as parameter accounts for zoom and pan.
-  // We need to amend our module global_hash to represent that.
-  hash = dt_hash(hash, (const char *)roi_out, sizeof(dt_iop_roi_t));
-
-  if(pipe->type == DT_DEV_PIXELPIPE_FULL)
-  {
-    // Mask display option is a sequential property of full preview pipeline,
-    // meaning it can be set by a module process() method at any node at runtime.
-    // Since we don't have it at commit_params() time, we need to be handle it here.
-    hash = dt_hash(hash, (const char *)&pipe->mask_display, sizeof(int));
-    hash = dt_hash(hash, (const char *)&pipe->bypass_blendif, sizeof(int));
-  }
-
+  // module->hash represents user params for a module.
+  // piece->hash represents user params and runtime pipeline params for a module.
+  // piece->global_hash is the cumulative piece->hash across the pipe, it tracks pipeline order.
+  // pipe->hash represents the output size and position.
+  // So when we mix piece->global_hash with pipe->hash, we have the complete integrity checksum
+  // for a pixel buffer cache line, including pipe order, upstream module params, and image size.
+  hash = dt_hash(hash, (const char *)&pipe->hash, sizeof(uint64_t));
   return hash;
 }
 
@@ -360,51 +363,40 @@ void dt_pixelpipe_get_global_hash(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev)
   // bernstein hash (djb2)
   uint64_t hash = _default_pipe_hash(pipe);
 
-  for(GList *node = pipe->nodes; node; node = g_list_next(node))
+  // Bypassing cache contaminates downstream modules.
+  gboolean bypass_cache = FALSE;
+
+  for(GList *node = g_list_first(pipe->nodes); node; node = g_list_next(node))
   {
     dt_dev_pixelpipe_iop_t *piece = (dt_dev_pixelpipe_iop_t *)node->data;
+
+    // Combine with the previous bypass states
+    bypass_cache |= piece->module->bypass_cache;
+    piece->bypass_cache = bypass_cache;
+
+    // Combine with the previous modules hashes : have an unique step hash even when disabled
+    hash = dt_hash(hash, (const char *)&piece->hash, sizeof(uint64_t));
+
     if(piece->enabled)
     {
-      // Combine with the previous modules hashes
-      hash = dt_hash(hash, (const char *)&piece->hash, sizeof(uint64_t));
-
-      if(pipe->type & DT_DEV_PIXELPIPE_PREVIEW)
-      {
-        // Preview-centric tweaks : color-pickers and histograms
-        hash = dt_hash(hash, (const char *)&piece->module->request_color_pick, sizeof(dt_dev_request_colorpick_flags_t));
-        hash = dt_hash(hash, (const char *)&piece->module->request_histogram, sizeof(dt_dev_request_flags_t));
-
-        if(piece->module->request_color_pick != DT_REQUEST_COLORPICK_OFF)
-        {
-          if(darktable.lib->proxy.colorpicker.primary_sample->size == DT_LIB_COLORPICKER_SIZE_BOX)
-            hash = dt_hash(hash, (const char *)darktable.lib->proxy.colorpicker.primary_sample->box, sizeof(float) * 4);
-          else if(darktable.lib->proxy.colorpicker.primary_sample->size == DT_LIB_COLORPICKER_SIZE_POINT)
-            hash = dt_hash(hash, (const char *)darktable.lib->proxy.colorpicker.primary_sample->point, sizeof(float) * 2);
-        }
-      }
+      // if modify_roi_in/out are implented, buf_in/out sizes will change.
+      // Though they should change according to user params.
+      // So this should be redundant with piece->hash. Is it ?
+      hash = dt_hash(hash, (const char *)&piece->buf_in, sizeof(dt_iop_roi_t));
+      hash = dt_hash(hash, (const char *)&piece->buf_out, sizeof(dt_iop_roi_t));
 
       if(pipe->type & DT_DEV_PIXELPIPE_FULL)
       {
         // Full-preview-centric tweaks : mask display
-        hash = dt_hash(hash, (const char *)&piece->module->request_mask_display, sizeof(int));
-        hash = dt_hash(hash, (const char *)&piece->module->suppress_mask, sizeof(uint32_t));
-
         if(dev->gui_module && dev->gui_module != piece->module)
         {
           // Crop and perspective need a full ROI to set-up bounds in GUI, but only temporarily
+          // FIXME: this should probably use dt_iop_set_bypass_cache because there is no point
+          // caching setting intermediate steps.
           const int distort_tags = dev->gui_module->operation_tags_filter() & piece->module->operation_tags();
           hash = dt_hash(hash, (const char *)&distort_tags, sizeof(int));
         }
       }
-
-      /*
-      fprintf(stdout, "[hash %i] module %s produced %lu (%i, %i, %i, %i)\n",
-              pipe->type, piece->module->op, hash,
-              piece->processed_roi_out.x,
-              piece->processed_roi_out.y,
-              piece->processed_roi_out.width,
-              piece->processed_roi_out.height);
-      */
     }
 
     // Write
@@ -528,6 +520,11 @@ void dt_dev_pixelpipe_change(dt_dev_pixelpipe_t *pipe, struct dt_develop_t *dev)
   dt_pthread_mutex_lock(&dev->history_mutex);
   dt_atomic_set_int(&pipe->shutdown, FALSE);
 
+  // mask display off as a starting point
+  pipe->mask_display = DT_DEV_PIXELPIPE_DISPLAY_NONE;
+  // and blendif active
+  pipe->bypass_blendif = 0;
+
   dt_print(DT_DEBUG_DEV, "[dt_dev_pixelpipe_change] pipeline state changing for pipe %i, flag %i\n", pipe->type, pipe->changed);
 
   // case DT_DEV_PIPE_UNCHANGED: case DT_DEV_PIPE_ZOOMED:
@@ -555,6 +552,7 @@ void dt_dev_pixelpipe_change(dt_dev_pixelpipe_t *pipe, struct dt_develop_t *dev)
                                   &pipe->processed_height);
 
   // This needs correct roi_out, so run get_dimensions before
+  // TODO: if DT_DEV_PIPE_TOP_CHANGED, compute global hash only for the top ?
   dt_pixelpipe_get_global_hash(pipe, dev);
 
   dt_pthread_mutex_unlock(&dev->history_mutex);
@@ -1024,10 +1022,13 @@ static void collect_histogram_on_CPU(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev
 
 #define KILL_SWITCH_ABORT if(dt_atomic_get_int(&pipe->shutdown)) return 1;
 
+// Once we have a cache, stopping computation before full completion
+// has good chances of leaving it corrupted. So we invalidate it.
 #define KILL_SWITCH_AND_FLUSH_CACHE {                         \
   if(dt_atomic_get_int(&pipe->shutdown))                      \
   {                                                           \
     dt_dev_pixelpipe_cache_invalidate(&(pipe->cache), input); \
+    dt_dev_pixelpipe_cache_invalidate(&(pipe->cache), *output);\
     return 1;                                                 \
   }                                                           \
 }
@@ -1608,6 +1609,9 @@ static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *
                                         void **cl_mem_output, dt_iop_buffer_dsc_t **out_format,
                                         const dt_iop_roi_t *roi_out, GList *modules, GList *pieces, int pos)
 {
+  // The pipeline is executed recursively, from the end. For each module n, starting from the end,
+  // if output is cached, take it, else if input is cached, take it, process it and output,
+  // else recurse to the previous module n-1 to get a an input.
   KILL_SWITCH_ABORT;
 
   dt_iop_roi_t roi_in = *roi_out;
@@ -1636,9 +1640,10 @@ static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *
   const size_t bpp = dt_iop_buffer_dsc_to_bpp(*out_format);
   const size_t bufsize = (size_t)bpp * roi_out->width * roi_out->height;
 
-  // 1) if cached buffer is still available, return data
+  // 1) if cached buffer is still available, return data.
   uint64_t hash = _node_hash(pipe, piece, roi_out, pos);
-  if(dt_dev_pixelpipe_cache_available(&(pipe->cache), hash))
+  const gboolean bypass_cache = (module) ? piece->bypass_cache : FALSE;
+  if(!bypass_cache && dt_dev_pixelpipe_cache_available(&(pipe->cache), hash))
   {
     if(module)
       dt_print(DT_DEBUG_DEV, "[pixelpipe] dt_dev_pixelpipe_process_rec, cache available for pipe %i and module %s with hash %llu\n",
@@ -1651,7 +1656,7 @@ static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *
     // we're done! as colorpicker/scopes only work on gamma iop
     // input -- which is unavailable via cache -- there's no need to
     // run these
-    KILL_SWITCH_ABORT;
+    KILL_SWITCH_AND_FLUSH_CACHE;
     return 0;
   }
 
@@ -1672,7 +1677,7 @@ static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *
       {
         *output = pipe->input;
       }
-      else if(dt_dev_pixelpipe_cache_get(&(pipe->cache), hash, bufsize, output, out_format))
+      else if(bypass_cache || dt_dev_pixelpipe_cache_get(&(pipe->cache), hash, bufsize, output, out_format))
       {
         if(roi_in.scale == 1.0f)
         {
@@ -1722,12 +1727,10 @@ static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *
   module->modify_roi_in(module, piece, roi_out, &roi_in);
 
   // recurse to get actual data of input buffer
-
   dt_iop_buffer_dsc_t _input_format = { 0 };
   dt_iop_buffer_dsc_t *input_format = &_input_format;
 
   piece = (dt_dev_pixelpipe_iop_t *)pieces->data;
-
   piece->processed_roi_in = roi_in;
   piece->processed_roi_out = *roi_out;
 
@@ -1735,16 +1738,12 @@ static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *
                                   g_list_previous(modules), g_list_previous(pieces), pos - 1))
     return 1;
 
-  KILL_SWITCH_AND_FLUSH_CACHE;
+  KILL_SWITCH_ABORT;
 
   const size_t in_bpp = dt_iop_buffer_dsc_to_bpp(input_format);
-
   piece->dsc_out = piece->dsc_in = *input_format;
-
   module->output_format(module, pipe, piece, &piece->dsc_out);
-
   **out_format = pipe->dsc = piece->dsc_out;
-
   const size_t out_bpp = dt_iop_buffer_dsc_to_bpp(*out_format);
 
   // reserve new cache line: output
@@ -1759,7 +1758,7 @@ static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *
   // mask. In that case we skip all modules manipulating pixel content and only process image distorting
   // modules. Finally "gamma" is responsible for displaying channel/mask data accordingly.
   if(strcmp(module->op, "gamma") != 0
-     && (pipe->mask_display & (DT_DEV_PIXELPIPE_DISPLAY_ANY | DT_DEV_PIXELPIPE_DISPLAY_MASK))
+     && (pipe->mask_display != DT_DEV_PIXELPIPE_DISPLAY_NONE)
      && !(module->operation_tags() & IOP_TAG_DISTORT)
      && (in_bpp == out_bpp) && !memcmp(&roi_in, roi_out, sizeof(struct dt_iop_roi_t)))
   {
@@ -1773,6 +1772,7 @@ static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *
     }
     else
     {
+      // FIXME: why not simply setting *output = input as for OpenCL path ?
 #ifdef _OPENMP
 #pragma omp parallel for default(none) \
       dt_omp_firstprivate(in_bpp, out_bpp) \
@@ -1871,7 +1871,7 @@ static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *
   // in case we get this buffer from the cache in the future, cache some stuff:
   **out_format = piece->dsc_out = pipe->dsc;
 
-  if(module == darktable.develop->gui_module)
+  if(dev->gui_attached && module == dev->gui_module)
   {
     // give the input buffer to the currently focused plugin more weight.
     // the user is likely to change that one soon, so keep it in cache.
@@ -2104,12 +2104,7 @@ int dt_dev_pixelpipe_process(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev, int x,
   GList *pieces = g_list_last(pipe->nodes);
 
 // re-entry point: in case of late opencl errors we start all over again with opencl-support disabled
-restart:
-  // mask display off as a starting point
-  pipe->mask_display = DT_DEV_PIXELPIPE_DISPLAY_NONE;
-  // and blendif active
-  pipe->bypass_blendif = 0;
-
+restart:;
   void *buf = NULL;
   void *cl_mem_out = NULL;
 
