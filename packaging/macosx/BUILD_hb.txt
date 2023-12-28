@@ -40,3 +40,4 @@ This approach is heavily based on and inspired by:
 - http://clarkkromenaker.com/post/library-dynamic-loading-mac/
 - https://gitlab.gnome.org/GNOME/gtk-mac-bundler
 - https://github.com/auriamg/macdylibbundler/ 
+- https://github.com/darktable-org/darktable/tree/master/packaging/macosx
