@@ -724,6 +724,8 @@ dt_iop_module_t *dt_iop_gui_duplicate(dt_iop_module_t *base, gboolean copy_param
       }
     }
 
+    dt_iop_gui_update_blending(module);
+
     // we save the new instance creation
     dt_dev_add_history_item(module->dev, module, TRUE);
   }

@@ -1326,6 +1326,7 @@ static gboolean _blendop_blendif_invert(GtkButton *button, GdkEventButton *event
   module->blend_params->blendif ^= toggle_mask;
   module->blend_params->mask_combine ^= DEVELOP_COMBINE_MASKS_POS;
   module->blend_params->mask_combine ^= DEVELOP_COMBINE_INCL;
+  dt_iop_gui_update_blending(module);
   dt_dev_add_history_item(darktable.develop, module, TRUE);
 
   return TRUE;
