@@ -1859,7 +1859,6 @@ void dt_iop_request_focus(dt_iop_module_t *module)
 
     gtk_widget_set_state_flags(dt_iop_gui_get_pluginui(out_focus_module), GTK_STATE_FLAG_NORMAL, TRUE);
 
-    if(out_focus_module->operation_tags_filter()) dt_dev_invalidate_from_gui(darktable.develop);
 
     dt_iop_connect_accels_multi(out_focus_module->so);
 
@@ -1887,8 +1886,6 @@ void dt_iop_request_focus(dt_iop_module_t *module)
   if(module)
   {
     gtk_widget_set_state_flags(dt_iop_gui_get_pluginui(module), GTK_STATE_FLAG_SELECTED, TRUE);
-
-    if(module->operation_tags_filter()) dt_dev_invalidate_from_gui(darktable.develop);
 
     dt_iop_connect_accels_multi(module->so);
 

@@ -2158,12 +2158,6 @@ void dt_dev_snapshot_request(dt_develop_t *dev, const char *filename)
   dt_control_queue_redraw_center();
 }
 
-// FIXME: this is used in colorpicker API. WTF ?
-void dt_dev_invalidate_from_gui(dt_develop_t *dev)
-{
-  dt_dev_pop_history_items(darktable.develop, darktable.develop->history_end);
-}
-
 void dt_dev_average_delay_update(const dt_times_t *start, uint32_t *average_delay)
 {
   dt_times_t end;
@@ -2479,40 +2473,6 @@ dt_dev_pixelpipe_iop_t *dt_dev_distort_get_iop_pipe(dt_develop_t *dev, struct dt
   return NULL;
 }
 
-uint64_t dt_dev_hash(dt_develop_t *dev)
-{
-  return dt_dev_hash_plus(dev, dev->preview_pipe, 0.0f, DT_DEV_TRANSFORM_DIR_ALL);
-}
-
-uint64_t dt_dev_hash_plus(dt_develop_t *dev, struct dt_dev_pixelpipe_t *pipe, const double iop_order, const int transf_direction)
-{
-  uint64_t hash = 5381;
-  dt_pthread_mutex_lock(&dev->history_mutex);
-  GList *modules = g_list_last(pipe->iop);
-  GList *pieces = g_list_last(pipe->nodes);
-  while(modules)
-  {
-    if(!pieces)
-    {
-      dt_pthread_mutex_unlock(&dev->history_mutex);
-      return 0;
-    }
-    dt_iop_module_t *module = (dt_iop_module_t *)(modules->data);
-    dt_dev_pixelpipe_iop_t *piece = (dt_dev_pixelpipe_iop_t *)(pieces->data);
-    if(piece->enabled && ((transf_direction == DT_DEV_TRANSFORM_DIR_ALL)
-                          || (transf_direction == DT_DEV_TRANSFORM_DIR_FORW_INCL && module->iop_order >= iop_order)
-                          || (transf_direction == DT_DEV_TRANSFORM_DIR_FORW_EXCL && module->iop_order > iop_order)
-                          || (transf_direction == DT_DEV_TRANSFORM_DIR_BACK_INCL && module->iop_order <= iop_order)
-                          || (transf_direction == DT_DEV_TRANSFORM_DIR_BACK_EXCL && module->iop_order < iop_order)))
-    {
-      hash = piece->global_hash;
-    }
-    modules = g_list_previous(modules);
-    pieces = g_list_previous(pieces);
-  }
-  dt_pthread_mutex_unlock(&dev->history_mutex);
-  return hash;
-}
 
 int dt_dev_wait_hash(dt_develop_t *dev, struct dt_dev_pixelpipe_t *pipe, const double iop_order, const int transf_direction, dt_pthread_mutex_t *lock,
                      const volatile uint64_t *const hash)
@@ -2547,7 +2507,7 @@ int dt_dev_wait_hash(dt_develop_t *dev, struct dt_dev_pixelpipe_t *pipe, const d
     else
       probehash = *hash;
 
-    if(probehash == dt_dev_hash_plus(dev, pipe, iop_order, transf_direction))
+    if(probehash == dt_dev_hash(dev, pipe))
       return TRUE;
 
     dt_iop_nap(usec);
@@ -2575,101 +2535,19 @@ int dt_dev_sync_pixelpipe_hash(dt_develop_t *dev, struct dt_dev_pixelpipe_t *pip
   return FALSE;
 }
 
-uint64_t dt_dev_hash_distort(dt_develop_t *dev)
-{
-  return dt_dev_hash_distort_plus(dev, dev->preview_pipe, 0.0f, DT_DEV_TRANSFORM_DIR_ALL);
-}
 
-uint64_t dt_dev_hash_distort_plus(dt_develop_t *dev, struct dt_dev_pixelpipe_t *pipe, const double iop_order, const int transf_direction)
+uint64_t dt_dev_hash(dt_develop_t *dev, struct dt_dev_pixelpipe_t *pipe)
 {
-  uint64_t hash = 5381;
+  uint64_t hash = 0;
   dt_pthread_mutex_lock(&dev->history_mutex);
-  GList *modules = g_list_last(pipe->iop);
   GList *pieces = g_list_last(pipe->nodes);
-  while(modules)
+  if(pieces)
   {
-    if(!pieces)
-    {
-      dt_pthread_mutex_unlock(&dev->history_mutex);
-      return 0;
-    }
-    dt_iop_module_t *module = (dt_iop_module_t *)(modules->data);
     dt_dev_pixelpipe_iop_t *piece = (dt_dev_pixelpipe_iop_t *)(pieces->data);
-    if(piece->enabled && module->operation_tags() & IOP_TAG_DISTORT
-       && ((transf_direction == DT_DEV_TRANSFORM_DIR_ALL)
-           || (transf_direction == DT_DEV_TRANSFORM_DIR_FORW_INCL && module->iop_order >= iop_order)
-           || (transf_direction == DT_DEV_TRANSFORM_DIR_FORW_EXCL && module->iop_order > iop_order)
-           || (transf_direction == DT_DEV_TRANSFORM_DIR_BACK_INCL && module->iop_order <= iop_order)
-           || (transf_direction == DT_DEV_TRANSFORM_DIR_BACK_EXCL && module->iop_order < iop_order)))
-    {
-      hash = piece->global_hash;
-    }
-    modules = g_list_previous(modules);
-    pieces = g_list_previous(pieces);
+    hash = piece->global_hash;
   }
   dt_pthread_mutex_unlock(&dev->history_mutex);
   return hash;
-}
-
-int dt_dev_wait_hash_distort(dt_develop_t *dev, struct dt_dev_pixelpipe_t *pipe, const double iop_order, const int transf_direction, dt_pthread_mutex_t *lock,
-                     const volatile uint64_t *const hash)
-{
-  const int usec = 5000;
-  int nloop = 0;
-
-#ifdef HAVE_OPENCL
-  if(pipe->devid >= 0)
-    nloop = darktable.opencl->opencl_synchronization_timeout;
-  else
-    nloop = dt_conf_get_int("pixelpipe_synchronization_timeout");
-#else
-  nloop = dt_conf_get_int("pixelpipe_synchronization_timeout");
-#endif
-
-  if(nloop <= 0) return TRUE;  // non-positive values omit pixelpipe synchronization
-
-  for(int n = 0; n < nloop; n++)
-  {
-    if(dt_atomic_get_int(&pipe->shutdown))
-      return TRUE;  // stop waiting if pipe shuts down
-
-    uint64_t probehash = 0;
-
-    if(lock)
-    {
-      dt_pthread_mutex_lock(lock);
-      probehash = *hash;
-      dt_pthread_mutex_unlock(lock);
-    }
-    else
-      probehash = *hash;
-
-    if(probehash == dt_dev_hash_distort_plus(dev, pipe, iop_order, transf_direction))
-      return TRUE;
-
-    dt_iop_nap(usec);
-  }
-
-  return FALSE;
-}
-
-int dt_dev_sync_pixelpipe_hash_distort(dt_develop_t *dev, struct dt_dev_pixelpipe_t *pipe, const double iop_order, const int transf_direction, dt_pthread_mutex_t *lock,
-                                       const volatile uint64_t *const hash)
-{
-  // first wait for matching hash values
-  if(dt_dev_wait_hash_distort(dev, pipe, iop_order, transf_direction, lock, hash))
-    return TRUE;
-
-  // timed out. let's see if history stack has changed
-  if(pipe->changed & (DT_DEV_PIPE_TOP_CHANGED | DT_DEV_PIPE_REMOVE | DT_DEV_PIPE_SYNCH))
-  {
-    dt_dev_refresh_ui_images(dev);
-    // pretend that everything is fine
-    return TRUE;
-  }
-
-  // no way to get pixelpipes in sync
-  return FALSE;
 }
 
 // set the module list order
