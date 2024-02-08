@@ -275,7 +275,7 @@ void dt_dev_process_preview_job(dt_develop_t *dev)
   }
 
 // always process the whole downsampled mipf buffer, to allow for fast scrolling and mip4 write-through.
-restart:
+  restart:;
   if(dev->gui_leaving)
   {
     dt_control_log_busy_leave();
@@ -285,13 +285,6 @@ restart:
     dt_mipmap_cache_release(darktable.mipmap_cache, &buf);
     return;
   }
-
-  restart:;
-  // adjust pipeline according to changed flag set by {add,pop}_history_item.
-  // this locks dev->history_mutex.
-  dt_times_t start;
-  dt_get_times(&start);
-
   // adjust pipeline according to changed flag set by {add,pop}_history_item.
   // this locks dev->history_mutex.
   dt_times_t start;
