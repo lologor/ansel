@@ -150,7 +150,6 @@ typedef struct dt_develop_t
 {
   int32_t gui_attached; // != 0 if the gui should be notified of changes in hist stack and modules should be
                         // gui_init'ed.
-  int32_t gui_leaving;  // set if everything is scheduled to shut down.
 
   dt_dev_pixelpipe_status_t image_status, preview_status;
   int32_t image_invalid_cnt;

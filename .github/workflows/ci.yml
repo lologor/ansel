@@ -240,10 +240,10 @@ jobs:
             osm-gps-map:p
             portmidi:p
             pugixml:p
-            python3:p
-            python3-jsonschema:p
-            python3-setuptools:p
-            python3-six:p
+            python:p
+            python-jsonschema:p
+            python-setuptools:p
+            python-six:p
             sqlite3:p
             zlib:p
           update: true

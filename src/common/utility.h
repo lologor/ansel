@@ -42,6 +42,8 @@ size_t dt_utf8_strlcpy(char *dest, const char *src, size_t n);
 gboolean dt_util_test_image_file(const char *filename);
 /** returns true if the path represents a directory with write access */
 gboolean dt_util_test_writable_dir(const char *path);
+/** returns true if the path represents directories */
+gboolean dt_util_dir_exist(const char *dir);
 /** returns true if dirname is empty */
 gboolean dt_util_is_dir_empty(const char *dirname);
 /** returns a valid UTF-8 string for the given char array. has to be freed with g_free(). */
@@ -113,9 +115,16 @@ char *dt_copy_filename_extension(const char *filename1, const char *filename2);
 // replaces all occurences of a substring in a string
 gchar *dt_str_replace(const char *string, const char *search, const char *replace);
 
+// Checks for the opposite separator in a string and replace it by the needed one by the current OS
+gchar *dt_cleanup_separators(gchar *string);
+
+gchar *dt_util_remove_whitespace(const gchar *path);
+
+// Get the datetime of modification for a given file, identified by its full path
+GDateTime *dt_util_get_file_datetime(const char *const path);
+
 // clang-format off
 // modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
 // clang-format on
-

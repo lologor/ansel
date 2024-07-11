@@ -2299,7 +2299,6 @@ void enter(dt_view_t *self)
   dt_masks_change_form_gui(NULL);
   dev->form_gui->pipe_hash = 0;
   dev->form_gui->formid = 0;
-  dev->gui_leaving = 0;
   dev->gui_module = NULL;
 
   // change active image
@@ -2421,7 +2420,6 @@ void enter(dt_view_t *self)
 void leave(dt_view_t *self)
 {
   dt_develop_t *dev = (dt_develop_t *)self->data;
-  dev->gui_leaving = 1; // shutdown all running pipelines ASAP
 
   // Remove the autosave timeout first thing because it locks the dev->history_mutex
   // and could interfere with the following.

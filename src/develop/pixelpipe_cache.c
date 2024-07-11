@@ -107,7 +107,8 @@ int dt_dev_pixelpipe_cache_get_weighted(dt_dev_pixelpipe_cache_t *cache, const u
 {
   cache->queries++;
   *data = NULL;
-  int max_used = -1, max = 0;
+  int max_used = -1;
+  size_t index_max = 0;
   size_t sz = 0;
   for(int k = 0; k < cache->entries; k++)
   {
@@ -115,7 +116,7 @@ int dt_dev_pixelpipe_cache_get_weighted(dt_dev_pixelpipe_cache_t *cache, const u
     if(cache->used[k] > max_used)
     {
       max_used = cache->used[k];
-      max = k;
+      index_max = k;
     }
 
     cache->used[k]++; // age all entries
@@ -135,26 +136,26 @@ int dt_dev_pixelpipe_cache_get_weighted(dt_dev_pixelpipe_cache_t *cache, const u
   if(!*data || sz < size)
   {
     // kill LRU entry
-    // printf("[pixelpipe_cache_get] hash not found, returning slot %d/%d age %d\n", max, cache->entries,
+    // printf("[pixelpipe_cache_get] hash not found, returning slot %d/%d age %d\n", index_max, cache->entries,
     // weight);
-    if(cache->size[max] < size)
+    if(cache->size[index_max] < size)
     {
-      dt_free_align(cache->data[max]);
-      cache->data[max] = (void *)dt_alloc_align(64, size);
-      cache->size[max] = size;
+      dt_free_align(cache->data[index_max]);
+      cache->data[index_max] = (void *)dt_alloc_align(64, size);
+      cache->size[index_max] = size;
     }
-    *data = cache->data[max];
-    sz = cache->size[max];
+    *data = cache->data[index_max];
+    sz = cache->size[index_max];
 
     ASAN_POISON_MEMORY_REGION(*data, sz);
     ASAN_UNPOISON_MEMORY_REGION(*data, size);
 
     // first, update our copy, then update the pointer to point at our copy
-    cache->dsc[max] = **dsc;
-    *dsc = &cache->dsc[max];
+    cache->dsc[index_max] = **dsc;
+    *dsc = &cache->dsc[index_max];
 
-    cache->hash[max] = hash;
-    cache->used[max] = weight;
+    cache->hash[index_max] = hash;
+    cache->used[index_max] = weight;
     cache->misses++;
     return 1;
   }

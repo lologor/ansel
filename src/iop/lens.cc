@@ -1125,6 +1125,9 @@ void commit_params(struct dt_iop_module_t *self, dt_iop_params_t *p1, dt_dev_pix
 {
   dt_iop_lensfun_params_t *p = (dt_iop_lensfun_params_t *)p1;
 
+  // FIXME: this is utter shit and should be made into a GUI "mode".
+  // If p->modified == 0, mode = auto and hide all controls
+  // if p->modidified == 1, mode = manual and show all controls.
   if(p->modified == 0)
   {
     /*
@@ -1132,6 +1135,9 @@ void commit_params(struct dt_iop_module_t *self, dt_iop_params_t *p1, dt_dev_pix
      * use current default_params as params - for presets and mass-export
      */
     p = (dt_iop_lensfun_params_t *)self->default_params;
+
+    // Temporary fix pending GUI unfucking
+    self->hash = dt_iop_module_hash(self);
   }
 
   dt_iop_lensfun_data_t *d = (dt_iop_lensfun_data_t *)piece->data;
@@ -1228,6 +1234,7 @@ void commit_params(struct dt_iop_module_t *self, dt_iop_params_t *p1, dt_dev_pix
 void init_pipe(struct dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)
 {
   piece->data = calloc(1, sizeof(dt_iop_lensfun_data_t));
+  piece->data_size = sizeof(dt_iop_lensfun_data_t);
 }
 
 void cleanup_pipe(struct dt_iop_module_t *self, dt_dev_pixelpipe_t *pipe, dt_dev_pixelpipe_iop_t *piece)
@@ -2185,6 +2192,7 @@ static void autoscale_pressed(GtkWidget *button, gpointer user_data)
   const float scale = get_autoscale(self, p, g->camera);
   p->modified = 1;
   dt_bauhaus_slider_set(g->scale, scale);
+  dt_dev_add_history_item(darktable.develop, self, TRUE);
 }
 
 static void corrections_done(gpointer instance, gpointer user_data)

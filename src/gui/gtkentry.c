@@ -173,6 +173,12 @@ const dt_gtkentry_completion_spec *dt_gtkentry_get_default_path_compl_list()
           { "FILE.FOLDER", N_("$(FILE.FOLDER) - folder containing the input image") },
           { "FILE.NAME", N_("$(FILE.NAME) - basename of the input image") },
           { "FILE.EXTENSION", N_("$(FILE.EXTENSION) - extension of the input image") },
+          { "FILE.YEAR", N_("$(FILE.YEAR) - year of modification of the input image") },
+          { "FILE.MONTH", N_("$(FILE.MONTH) - month of modification of the input image") },
+          { "FILE.DAY", N_("$(FILE.DAY) - day of modification of the input image") },
+          { "FILE.HOUR", N_("$(FILE.HOUR) - hour of modification of the input image") },
+          { "FILE.MINUTE", N_("$(FILE.MINUTE) - minute of modification of the input image") },
+          { "FILE.SECOND", N_("$(FILE.SECOND) - second of modification of the input image") },
           { "VERSION", N_("$(VERSION) - duplicate version") },
           { "VERSION.IF_MULTI", N_("$(VERSION.IF_MULTI) - same as $(VERSION) but null string if only one version exists") },
           { "VERSION.NAME", N_("$(VERSION.NAME) - version name from metadata") },
@@ -279,4 +285,3 @@ gchar *dt_gtkentry_build_completion_tooltip_text(const gchar *header,
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
 // clang-format on
-

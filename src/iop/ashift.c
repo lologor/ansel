@@ -5124,6 +5124,7 @@ static void _enter_edit_mode(GtkToggleButton* button, struct dt_iop_module_t *se
 {
   dt_iop_ashift_gui_data_t *g = (dt_iop_ashift_gui_data_t *)self->gui_data;
   dt_iop_ashift_params_t *p = (dt_iop_ashift_params_t *)self->params;
+  if(!self->enabled) dt_dev_add_history_item(self->dev, self, TRUE);
 
   g->editing = gtk_toggle_button_get_active(button);
   dt_control_change_cursor(GDK_LEFT_PTR);

@@ -271,7 +271,7 @@ static void dt_focus_draw_clusters(cairo_t *cr, int width, int height, int imgid
       dt_dev_pixelpipe_set_input(&pipe, &dev, NULL, wd, ht, 1.0f);
       dt_dev_pixelpipe_create_nodes(&pipe, &dev);
       dt_dev_pixelpipe_synch_all(&pipe, &dev);
-      dt_dev_pixelpipe_get_dimensions(&pipe, &dev, pipe.iwidth, pipe.iheight, &pipe.processed_width,
+      dt_dev_pixelpipe_get_roi_out(&pipe, &dev, pipe.iwidth, pipe.iheight, &pipe.processed_width,
                                       &pipe.processed_height);
       dt_dev_distort_transform_plus(&dev, &pipe, 0.f, DT_DEV_TRANSFORM_DIR_ALL, pos, fs * 3);
       dt_dev_pixelpipe_cleanup(&pipe);

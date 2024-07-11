@@ -787,7 +787,7 @@ int dt_imageio_export_with_flags(const int32_t imgid, const char *filename,
     if(!strncmp(filter, "post:", 5)) dt_dev_pixelpipe_disable_before(&pipe, filter + 5);
   }
 
-  dt_dev_pixelpipe_get_dimensions(&pipe, &dev, pipe.iwidth, pipe.iheight, &pipe.processed_width,
+  dt_dev_pixelpipe_get_roi_out(&pipe, &dev, pipe.iwidth, pipe.iheight, &pipe.processed_width,
                                   &pipe.processed_height);
 
   dt_show_times(&start, "[export] creating pixelpipe");
@@ -919,10 +919,6 @@ int dt_imageio_export_with_flags(const int32_t imgid, const char *filename,
   }
 
   const int bpp = format->bpp(format_params);
-
-  // Get the roi_out hash
-  dt_iop_roi_t roi_out = { .x = 0, .y = 0, .width = processed_width, .height = processed_height, .scale = scale };
-  pipe.hash = dt_hash(5381, (const char *)&roi_out, sizeof(dt_iop_roi_t));
 
   dt_get_times(&start);
   if(high_quality_processing)

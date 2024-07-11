@@ -1786,6 +1786,8 @@ void gui_update(struct dt_iop_module_t *self)
       return;
     }
   }
+
+  // Error happened, otherwise we would have returned earlier
   dt_bauhaus_combobox_set(g->profile_combobox, 0);
 
   if(p->type != DT_COLORSPACE_ENHANCED_MATRIX)
@@ -1793,39 +1795,7 @@ void gui_update(struct dt_iop_module_t *self)
     fprintf(stderr, "[colorin] could not find requested profile `%s'!\n",
             dt_colorspaces_get_name(p->type, p->filename));
 
-    const int last_id = dt_conf_get_int("colorin/profile_error/last_id");
-    const gint64 last_timestamp = dt_conf_get_int64("colorin/profile_error/last_timestamp");
-    GDateTime *now = g_date_time_new_now_local();
-    gint64 timestamp = g_date_time_to_unix(now);
-
-    if(last_id != self->dev->image_storage.id || (timestamp - last_timestamp) > 3600)
-    {
-      // Nag users about errors only once every hour for each image.
-      // Noticeably, because gui_update is fired twice on each darkroom init
-      dt_conf_set_int("colorin/profile_error/last_id", self->dev->image_storage.id);
-      dt_conf_set_int64("colorin/profile_error/last_timestamp", timestamp);
-
-      GtkWidget *dialog = gtk_message_dialog_new_with_markup(GTK_WINDOW(dt_ui_main_window(darktable.gui->ui)),
-                                          GTK_DIALOG_DESTROY_WITH_PARENT,
-                                          GTK_MESSAGE_ERROR,
-                                          GTK_BUTTONS_CLOSE,
-                                          _("<span size='large'>Error on image <u>%s</u> (library id: <tt>%i</tt>)</span>"),
-                                          self->dev->image_storage.filename,
-                                          self->dev->image_storage.id);
-      gtk_message_dialog_format_secondary_markup(
-          GTK_MESSAGE_DIALOG(dialog),
-          _("The editing history references the following input color profile: \n"
-            "<tt>%s</tt>\n\n"
-            "<b>This file has not been found on your system</b> and Ansel will fall back to linear Rec709 color space. "
-            "It is a serious error that can lead to unpredictable color shifts and unexpected results.\n\n"
-            "If this file has moved, you should update its path in the <i>input color profile</i> module. "
-            "If you don't have it, then you may have to redo your color editing."),
-            dt_colorspaces_get_name(p->type, p->filename));
-      gtk_dialog_run(GTK_DIALOG(dialog));
-      gtk_widget_destroy(dialog);
-    }
-
-    g_date_time_unref(now);
+    dt_control_log(_("The color profile `%s' referenced as input profile has not been found."), dt_colorspaces_get_name(p->type, p->filename));
   }
 }
 
@@ -1836,115 +1806,7 @@ void reload_defaults(dt_iop_module_t *module)
   module->hide_enable_button = 1;
 
   dt_iop_colorin_params_t *d = module->default_params;
-
-  dt_colorspaces_color_profile_type_t color_profile = DT_COLORSPACE_NONE;
-
-  // some file formats like jpeg can have an embedded color profile
-  // currently we only support jpeg, j2k, tiff and png
-  dt_image_t *img = dt_image_cache_get(darktable.image_cache, module->dev->image_storage.id, 'w');
-
-  if(!img->profile)
-  {
-    // the image has not a profile inited
-    char filename[PATH_MAX] = { 0 };
-    gboolean from_cache = TRUE;
-    dt_image_full_path(img->id,  filename,  sizeof(filename),  &from_cache, __FUNCTION__);
-    const gchar *cc = filename + strlen(filename);
-    for(; *cc != '.' && cc > filename; cc--)
-      ;
-    gchar *ext = g_ascii_strdown(cc + 1, -1);
-
-    if(!strcmp(ext, "jpg") || !strcmp(ext, "jpeg"))
-    {
-      dt_imageio_jpeg_t jpg;
-      if(!dt_imageio_jpeg_read_header(filename, &jpg))
-      {
-        img->profile_size = dt_imageio_jpeg_read_profile(&jpg, &img->profile);
-        color_profile = (img->profile_size > 0) ? DT_COLORSPACE_EMBEDDED_ICC : DT_COLORSPACE_NONE;
-      }
-    }
-    else if(!strcmp(ext, "pfm"))
-    {
-      // PFM have no embedded color profile nor ICC tag, we can't know the color space
-      // but we can assume the are linear since it's a floating point format
-      color_profile = DT_COLORSPACE_LIN_REC709;
-    }
-#ifdef HAVE_OPENJPEG
-    else if(!strcmp(ext, "jp2") || !strcmp(ext, "j2k") || !strcmp(ext, "j2c") || !strcmp(ext, "jpc"))
-    {
-      img->profile_size = dt_imageio_j2k_read_profile(filename, &img->profile);
-      color_profile = (img->profile_size > 0) ? DT_COLORSPACE_EMBEDDED_ICC : DT_COLORSPACE_NONE;
-    }
-#endif
-    // the ldr test just checks for magics in the file header
-    else if((!strcmp(ext, "tif") || !strcmp(ext, "tiff")) && dt_imageio_is_ldr(filename))
-    {
-      img->profile_size = dt_imageio_tiff_read_profile(filename, &img->profile);
-      color_profile = (img->profile_size > 0) ? DT_COLORSPACE_EMBEDDED_ICC : DT_COLORSPACE_NONE;
-    }
-    else if(!strcmp(ext, "png"))
-    {
-      img->profile_size = dt_imageio_png_read_profile(filename, &img->profile);
-      color_profile = (img->profile_size > 0) ? DT_COLORSPACE_EMBEDDED_ICC : DT_COLORSPACE_NONE;
-    }
-#ifdef HAVE_LIBAVIF
-    else if(!strcmp(ext, "avif"))
-    {
-      dt_colorspaces_cicp_t cicp;
-      img->profile_size = dt_imageio_avif_read_profile(filename, &img->profile, &cicp);
-      /* try the nclx box before falling back to any ICC profile */
-      if((color_profile = dt_colorspaces_cicp_to_type(&cicp, filename)) == DT_COLORSPACE_NONE)
-        color_profile = (img->profile_size > 0) ? DT_COLORSPACE_EMBEDDED_ICC : DT_COLORSPACE_NONE;
-    }
-#endif
-#ifdef HAVE_LIBHEIF
-    else if(!strcmp(ext, "heif")
-         || !strcmp(ext, "heic")
-         || !strcmp(ext, "hif")
-  #ifndef HAVE_LIBAVIF
-         || !strcmp(ext, "avif")
-  #endif
-         )
-    {
-      dt_colorspaces_cicp_t cicp;
-      img->profile_size = dt_imageio_heif_read_profile(filename, &img->profile, &cicp);
-      /* try the nclx box before falling back to any ICC profile */
-      if((color_profile = dt_colorspaces_cicp_to_type(&cicp, filename)) == DT_COLORSPACE_NONE)
-        color_profile = (img->profile_size > 0) ? DT_COLORSPACE_EMBEDDED_ICC : DT_COLORSPACE_NONE;
-    }
-#endif
-    g_free(ext);
-  }
-  else
-  {
-    // there is an inited embedded profile
-    color_profile = DT_COLORSPACE_EMBEDDED_ICC;
-  }
-
-
-  if(color_profile != DT_COLORSPACE_NONE)
-    d->type = color_profile;
-  else if(img->flags & DT_IMAGE_4BAYER) // 4Bayer images have been pre-converted to rec2020
-    d->type = DT_COLORSPACE_LIN_REC2020;
-  else if(dt_image_is_monochrome(img))
-    d->type = DT_COLORSPACE_LIN_REC709;
-  else if(img->colorspace == DT_IMAGE_COLORSPACE_SRGB)
-    d->type = DT_COLORSPACE_SRGB;
-  else if(img->colorspace == DT_IMAGE_COLORSPACE_ADOBE_RGB)
-    d->type = DT_COLORSPACE_ADOBERGB;
-  else if(dt_image_is_ldr(img))
-    d->type = DT_COLORSPACE_SRGB;
-  else if(!isnan(img->d65_color_matrix[0])) // image is DNG
-    d->type = DT_COLORSPACE_EMBEDDED_MATRIX;
-  else if(dt_image_is_matrix_correction_supported(img)) // image is raw
-    d->type = DT_COLORSPACE_STANDARD_MATRIX;
-  else if(dt_image_is_hdr(img)) // image is 32 bit float, most likely linear space, best guess is Rec709
-    d->type = DT_COLORSPACE_LIN_REC709;
-  else // no ICC tag nor colorprofile was found - ICC spec says untagged files are sRGB
-    d->type = DT_COLORSPACE_SRGB;
-
-  dt_image_cache_write_release(darktable.image_cache, img, DT_IMAGE_CACHE_RELAXED);
-
+  d->type = dt_image_find_best_color_profile(module->dev->image_storage.id, NULL);
   update_profile_list(module);
 }
 

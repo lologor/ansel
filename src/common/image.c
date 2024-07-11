@@ -709,7 +709,7 @@ void dt_image_update_final_size(const int32_t imgid)
   int ww = 0, hh = 0;
   if(darktable.develop && darktable.develop->pipe && darktable.develop->pipe->output_imgid == imgid)
   {
-    dt_dev_pixelpipe_get_dimensions(darktable.develop->pipe, darktable.develop, darktable.develop->pipe->iwidth,
+    dt_dev_pixelpipe_get_roi_out(darktable.develop->pipe, darktable.develop, darktable.develop->pipe->iwidth,
                                     darktable.develop->pipe->iheight, &ww, &hh);
   }
   dt_image_t *imgtmp = dt_image_cache_get(darktable.image_cache, imgid, 'w');
@@ -747,7 +747,7 @@ gboolean dt_image_get_final_size(const int32_t imgid, int *width, int *height)
     dt_dev_pixelpipe_set_input(&pipe, &dev, NULL, wd, ht, 1.0f);
     dt_dev_pixelpipe_create_nodes(&pipe, &dev);
     dt_dev_pixelpipe_synch_all(&pipe, &dev);
-    dt_dev_pixelpipe_get_dimensions(&pipe, &dev, pipe.iwidth, pipe.iheight, &pipe.processed_width,
+    dt_dev_pixelpipe_get_roi_out(&pipe, &dev, pipe.iwidth, pipe.iheight, &pipe.processed_width,
                                     &pipe.processed_height);
     wd = pipe.processed_width;
     ht = pipe.processed_height;
@@ -1266,6 +1266,10 @@ void dt_image_remove(const int32_t imgid)
   // due to foreign keys added in db version 33,
   // all entries from tables having references to the images are deleted as well
   DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db), "DELETE FROM main.images WHERE id = ?1", -1, &stmt,
+                              NULL);
+  DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
+  sqlite3_step(stmt);
+  DT_DEBUG_SQLITE3_PREPARE_V2(dt_database_get(darktable.db), "DELETE FROM main.meta_data WHERE id = ?1", -1, &stmt,
                               NULL);
   DT_DEBUG_SQLITE3_BIND_INT(stmt, 1, imgid);
   sqlite3_step(stmt);
@@ -2828,6 +2832,14 @@ void dt_image_check_camera_missing_sample(const struct dt_image_t *img)
     dt_control_log(msg, (char *)NULL);
     g_free(msg);
   }
+}
+
+void dt_get_dirname_from_imgid(gchar *dir, const int32_t imgid)
+{
+  gchar path[PATH_MAX] = { 0 };
+  gboolean from_cache = FALSE;
+  dt_image_full_path(imgid, path, sizeof(path), &from_cache, __FUNCTION__);
+  g_strlcpy(dir, g_path_get_dirname(path), sizeof(path));
 }
 
 // clang-format off

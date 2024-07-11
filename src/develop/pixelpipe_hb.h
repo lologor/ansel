@@ -73,6 +73,7 @@ typedef struct dt_dev_pixelpipe_iop_t
   dt_iop_roi_t buf_in,
       buf_out;                // theoretical full buffer regions of interest, as passed through modify_roi_out
   dt_iop_roi_t processed_roi_in, processed_roi_out; // the actual roi that was used for processing the piece
+  dt_iop_roi_t planned_roi_in, planned_roi_out; // sizes planned ahead for cache hash
   int process_cl_ready;       // set this to 0 in commit_params to temporarily disable the use of process_cl
   int process_tiling_ready;   // set this to 0 in commit_params to temporarily disable tiling
 
@@ -183,13 +184,6 @@ typedef struct dt_dev_pixelpipe_t
   GList *forms;
   // the masks generated in the pipe for later reusal are inside dt_dev_pixelpipe_iop_t
   gboolean store_all_raster_masks;
-
-  // pipe hash, inited from final output size and coordinates.
-  // should stay constant in the lifecycle of a pipe.
-  // will be used for the first stage of pipeline, where there is no module.
-  // will be used to factor in the output size on top of module params
-  // to track cache lines state.
-  uint64_t hash;
 } dt_dev_pixelpipe_t;
 
 struct dt_develop_t;
@@ -217,8 +211,9 @@ void dt_dev_pixelpipe_set_icc(dt_dev_pixelpipe_t *pipe, dt_colorspaces_color_pro
                               const gchar *icc_filename, dt_iop_color_intent_t icc_intent);
 
 // returns the dimensions of the full image after processing.
-void dt_dev_pixelpipe_get_dimensions(dt_dev_pixelpipe_t *pipe, struct dt_develop_t *dev, int width_in,
+void dt_dev_pixelpipe_get_roi_out(dt_dev_pixelpipe_t *pipe, struct dt_develop_t *dev, int width_in,
                                      int height_in, int *width, int *height);
+void dt_dev_pixelpipe_get_roi_in(dt_dev_pixelpipe_t *pipe, struct dt_develop_t *dev, const struct dt_iop_roi_t roi_out);
 
 // destroys all allocated data.
 void dt_dev_pixelpipe_cleanup(dt_dev_pixelpipe_t *pipe);
@@ -269,6 +264,10 @@ gboolean dt_dev_write_rawdetail_mask_cl(dt_dev_pixelpipe_iop_t *piece, cl_mem in
 
 // helper function writing the pipe-processed ctmask data to dest
 float *dt_dev_distort_detail_mask(const dt_dev_pixelpipe_t *pipe, float *src, const struct dt_iop_module_t *target_module);
+
+// Compute the sequential hash over the pipeline for each module.
+// Need to run after dt_dev_pixelpipe_get_roi_in() has updated processed ROI in/out
+void dt_pixelpipe_get_global_hash(dt_dev_pixelpipe_t *pipe, struct dt_develop_t *dev);
 
 // clang-format off
 // modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py

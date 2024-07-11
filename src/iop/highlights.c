@@ -2232,7 +2232,17 @@ static void _visualize_callback(GtkWidget *quad, gpointer user_data)
   if(darktable.gui->reset) return;
   dt_iop_module_t *self = (dt_iop_module_t *)user_data;
   dt_iop_highlights_gui_data_t *g = (dt_iop_highlights_gui_data_t *)self->gui_data;
+
+  // if blend module is displaying mask do not display it here
+  if(self->request_mask_display != DT_DEV_PIXELPIPE_DISPLAY_NONE)
+    self->request_mask_display = DT_DEV_PIXELPIPE_DISPLAY_NONE;
+
   g->show_visualize = dt_bauhaus_widget_get_quad_active(quad);
+
+  if(g->show_visualize)
+    self->request_mask_display = DT_DEV_PIXELPIPE_DISPLAY_PASSTHRU;
+
+  dt_iop_set_cache_bypass(self, g->show_visualize);
   dt_dev_invalidate(self->dev);
   dt_dev_refresh_ui_images(self->dev);
 }

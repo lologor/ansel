@@ -126,6 +126,16 @@ static void copy_callback()
     dt_control_log(_("Copy is allowed only with exactly one image selected"));
 }
 
+
+static void copy_parts_callback()
+{
+  if(copy_sensitive_callback())
+    dt_history_copy_parts(dt_selection_get_first_id(darktable.selection));
+  else
+    dt_control_log(_("Copy is allowed only with exactly one image selected"));
+}
+
+
 static gboolean paste_sensitive_callback()
 {
   return darktable.view_manager->copy_paste.copied_imageid > 0;
@@ -270,9 +280,13 @@ void append_edit(GtkWidget **menus, GList **lists, const dt_menus_t index)
 
   add_menu_separator(menus[index]);
 
-  add_sub_menu_entry(menus, lists, _("Copy development"), index, NULL, copy_callback, NULL, NULL, copy_sensitive_callback);
-  ac = dt_action_define(pnl, NULL, N_("Copy development"), get_last_widget(lists), NULL);
+  add_sub_menu_entry(menus, lists, _("Copy development (all)"), index, NULL, copy_callback, NULL, NULL, copy_sensitive_callback);
+  ac = dt_action_define(pnl, NULL, N_("Copy development (all)"), get_last_widget(lists), NULL);
   dt_action_register(ac, NULL, copy_callback, GDK_KEY_c, GDK_CONTROL_MASK);
+
+  add_sub_menu_entry(menus, lists, _("Copy development (parts)..."), index, NULL, copy_parts_callback, NULL, NULL, copy_sensitive_callback);
+  ac = dt_action_define(pnl, NULL, N_("Copy development (parts)"), get_last_widget(lists), NULL);
+  dt_action_register(ac, NULL, copy_callback, GDK_KEY_c, GDK_CONTROL_MASK | GDK_SHIFT_MASK);
 
   add_sub_menu_entry(menus, lists, _("Paste development (all)"), index, NULL, paste_all_callback, NULL, NULL,
                      paste_sensitive_callback);

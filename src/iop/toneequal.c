@@ -119,7 +119,7 @@ DT_MODULE_INTROSPECTION(2, dt_iop_toneequalizer_params_t)
 #define MIN_FLOAT exp2f(-16.0f)
 
 /**
- * Build the exposures octaves : 
+ * Build the exposures octaves :
  * band-pass filters with gaussian windows spaced by 1 EV
 **/
 
@@ -1877,8 +1877,8 @@ static void show_luminance_mask_callback(GtkWidget *togglebutton, GdkEventButton
   if(g->mask_display)
     self->request_mask_display = DT_DEV_PIXELPIPE_DISPLAY_PASSTHRU;
 
+  dt_iop_set_cache_bypass(self, g->mask_display);
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(g->show_luminance_mask), g->mask_display);
-//  dt_dev_reprocess_center(self->dev);
   dt_iop_refresh_center(self);
 
   // Unlock the colour picker so we can display our own custom cursor

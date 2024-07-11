@@ -110,9 +110,15 @@ void init_collection_line(gpointer instance,
   }
 }
 
+gboolean _is_lighttable()
+{
+  const dt_view_t *cv = dt_view_manager_get_current_view(darktable.view_manager);
+  return cv && !strcmp(cv->module_name, "lighttable");
+}
+
 void import_files_callback()
 {
-  dt_images_import();
+    dt_images_import();
 }
 
 void _close_export_popup(GtkWidget *dialog, gint response_id, gpointer data)
@@ -151,15 +157,16 @@ void export_files_callback()
   GtkWidget *dialog = gtk_dialog_new();
 #ifdef GDK_WINDOWING_QUARTZ
 // TODO: On MacOS (at least on version 13) the dialog windows doesn't behave as expected. The dialog
-// needs to have a parent window. "set_parent_window" wasn't working, so set_transient_for is 
-// the way to go. Still the window manager isn't dealing with the dialog properly, when the dialog 
-// is shifted outside its parent. The dialog isn't visible any longer but still listed as a window 
+// needs to have a parent window. "set_parent_window" wasn't working, so set_transient_for is
+// the way to go. Still the window manager isn't dealing with the dialog properly, when the dialog
+// is shifted outside its parent. The dialog isn't visible any longer but still listed as a window
 // of the app.
   dt_osx_disallow_fullscreen(dialog);
-  gtk_window_set_transient_for(GTK_WINDOW(dialog), GTK_WINDOW(dt_ui_main_window(darktable.gui->ui)));
   gtk_window_set_position(GTK_WINDOW(dialog), GTK_WIN_POS_CENTER_ON_PARENT);
 #endif
   gtk_dialog_set_default_response(GTK_DIALOG(dialog), GTK_RESPONSE_CANCEL);
+  gtk_window_set_modal(GTK_WINDOW(dialog), FALSE);
+  gtk_window_set_transient_for(GTK_WINDOW(dialog), NULL);
   gtk_window_set_title(GTK_WINDOW(dialog), _("Ansel - Export images"));
   g_signal_connect(G_OBJECT(dialog), "response", G_CALLBACK(_close_export_popup), NULL);
 

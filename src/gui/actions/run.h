@@ -38,7 +38,7 @@ static int32_t preload_image_cache(dt_job_t *job)
   {
     const int imgid = GPOINTER_TO_INT(collection->data);
 
-    for(int k = 4; k >= 0; k--)
+    for(int k = DT_MIPMAP_FULL; k >= 0; k--)
     {
       dt_mipmap_buffer_t buf;
       dt_mipmap_cache_get(darktable.mipmap_cache, &buf, imgid, k, DT_MIPMAP_BLOCKING, 'r');
