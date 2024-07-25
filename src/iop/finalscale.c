@@ -73,8 +73,7 @@ void distort_mask(struct dt_iop_module_t *self, struct dt_dev_pixelpipe_iop_t *p
                   float *const out, const dt_iop_roi_t *const roi_in, const dt_iop_roi_t *const roi_out)
 {
   const struct dt_interpolation *itor = dt_interpolation_new(DT_INTERPOLATION_USERPREF_WARP);
-  dt_interpolation_resample_roi_1c(itor, out, roi_out, roi_out->width * sizeof(float), in, roi_in,
-                                   roi_in->width * sizeof(float));
+  dt_interpolation_resample_roi_1c(itor, out, roi_out, in, roi_in);
 }
 
 #ifdef HAVE_OPENCL

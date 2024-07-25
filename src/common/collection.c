@@ -558,11 +558,6 @@ int dt_collection_update(const dt_collection_t *collection)
                         (collection->params.query_flags & COLLECTION_QUERY_USE_LIMIT) ? " " LIMIT_QUERY : "");
   result = _dt_collection_store(collection, query, query_no_group);
 
-#ifdef _DEBUG
-  printf("SQL Collection for 1st:%d and 2nd:%d: %s\n\n",collection->params.sort,collection->params.sort_second_order,query);/*only for debugging*/
-#endif
-
-
   /* free memory used */
   g_free(sq);
   g_free(wq);
@@ -2603,7 +2598,7 @@ static void _dt_collection_recount_callback_2(gpointer instance, const int32_t i
 
 static inline void _dt_collection_change_view_after_import(const dt_view_t *current_view)
 {
-  const int nb = dt_conf_get_int("ui_last/nb_imported"); 
+  const int nb = dt_conf_get_int("ui_last/nb_imported");
   if(nb == 1)
   {
     if(!g_strcmp0(current_view->module_name, "darkroom")) // if current view IS "darkroom".

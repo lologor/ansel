@@ -641,7 +641,8 @@ void commit_params(struct dt_iop_module_t *self, dt_iop_params_t *p1, dt_dev_pix
   else if((pipe->type & DT_DEV_PIXELPIPE_EXPORT) == DT_DEV_PIXELPIPE_EXPORT)
   {
     // Export with no explicit profile specified : use input file embedded profile
-    output = dt_colorspaces_get_embedded_profile(pipe->image.id, &out_type);
+    gboolean new_profile;
+    output = dt_colorspaces_get_embedded_profile(pipe->image.id, &out_type, &new_profile);
   }
 
   // We don't have an internal, embedded or external file profile,

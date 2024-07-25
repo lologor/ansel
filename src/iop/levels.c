@@ -788,7 +788,7 @@ static gboolean dt_iop_levels_area_draw(GtkWidget *widget, cairo_t *crf, gpointe
   if(self->enabled)
   {
     uint32_t *hist = self->histogram;
-    const gboolean is_linear = darktable.lib->proxy.histogram.is_linear;
+    const gboolean is_linear = FALSE;
     float hist_max = is_linear ? self->histogram_max[0] : logf(1.0 + self->histogram_max[0]);
     if(hist && hist_max > 0.0f)
     {

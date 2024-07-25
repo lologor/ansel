@@ -1389,7 +1389,7 @@ static gboolean dt_iop_tonecurve_draw(GtkWidget *widget, cairo_t *crf, gpointer 
     float *raw_mean, *raw_min, *raw_max;
     float *raw_mean_output;
     dt_aligned_pixel_t picker_mean, picker_min, picker_max;
-    const gboolean is_linear = darktable.lib->proxy.histogram.is_linear;
+    const gboolean is_linear = FALSE;
 
     raw_mean = gd->picked_color;
     raw_min = gd->picked_color_min;

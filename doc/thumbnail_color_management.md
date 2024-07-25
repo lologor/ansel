@@ -1,9 +1,13 @@
+# Thumbnails color management
+
+[TOC]
+
 to ease debugging the code will use DT_COLORSPACE_DISPLAY for images loaded without a color space mentioned in Exif or when explicitly exporting
 for the Display profile, while buffers get initialized as DT_COLORSPACE_NONE. if ever such a thumbnail gets encountered there is a bug
 (i.e., a code path where a thumbnail gets loaded without the color space being set).
 
 
-DRAWING/EXPOSE
+## DRAWING/EXPOSE
 
 - thumbnails are tagged as sRGB, AdobeRGB, Display or None
   None means that we got a code path which doesn't set the color space -> BUG
@@ -14,14 +18,14 @@ DRAWING/EXPOSE
         * put the resulting pixels on the screen
 
 
-WRITING CACHE TO DISK
+## WRITING CACHE TO DISK
 
 - thumbnails are tagged as sRGB, AdobeRGB, Display or None
 - mark sRGB and AdobeRGB in Exif
 - write JPEG
 
 
-REQUESTING MIPMAP
+## REQUESTING MIPMAP
 
 - reading thumbnail from disk cache
     - read JPEG
@@ -40,7 +44,7 @@ REQUESTING MIPMAP
 
 
 
-CONCLUSION
+## CONCLUSION
 
 when thumbnail color management is on:
 - we export new thumbnails as AdobeRGB
@@ -66,6 +70,6 @@ there are two cases where colors would be wrong:
   the cache when reading them)
 
 
-TODO
+## TODO
 what to do when loading a jpeg or other file to create a thumbnail and it's neither sRGB nor AdobeRGB but some random other format? Convert to
 AdobeRGB? dump pixels to screen and wait for the full pipe to run eventually to get color managed thumbnails?

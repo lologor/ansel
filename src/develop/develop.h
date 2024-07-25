@@ -146,6 +146,18 @@ typedef struct dt_dev_proxy_exposure_t
 } dt_dev_proxy_exposure_t;
 
 struct dt_dev_pixelpipe_t;
+
+typedef struct dt_backbuf_t
+{
+  void *buffer;         // image data
+  size_t width;          // pixel size of image
+  size_t height;         // pixel size of image
+  uint64_t hash;         // checksum/integrity hash, for example to connect to a cacheline
+  const char *op;        // name of the backbuf
+  size_t bpp;            // bits per pixels
+} dt_backbuf_t;
+
+
 typedef struct dt_develop_t
 {
   int32_t gui_attached; // != 0 if the gui should be notified of changes in hist stack and modules should be
@@ -211,6 +223,10 @@ typedef struct dt_develop_t
   // darkroom border size
   int32_t border_size;
   int32_t orig_width, orig_height;
+
+  dt_backbuf_t raw_histogram; // backbuf to prepare the raw histogram (before white balance)
+  dt_backbuf_t output_histogram;  // backbuf to prepare the display-agnostic output histogram (in the middle of colorout)
+  dt_backbuf_t display_histogram; // backbuf to prepare the display-referred output histogram (at the far end of the pipe)
 
   /* proxy for communication between plugins and develop/darkroom */
   struct

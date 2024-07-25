@@ -1,0 +1,10 @@
+/* Force visibility of graphs by default */
+.dyncontent {
+  display: block!important;
+  visibility: visible;
+}
+
+.dynsummary {
+  display: none!important;
+  visibility: hidden;
+}

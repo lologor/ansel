@@ -1806,7 +1806,8 @@ void reload_defaults(dt_iop_module_t *module)
   module->hide_enable_button = 1;
 
   dt_iop_colorin_params_t *d = module->default_params;
-  d->type = dt_image_find_best_color_profile(module->dev->image_storage.id, NULL);
+  gboolean new_profile;
+  d->type = dt_image_find_best_color_profile(module->dev->image_storage.id, NULL, &new_profile);
   update_profile_list(module);
 }
 

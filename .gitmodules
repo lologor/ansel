@@ -15,3 +15,6 @@
 	path = src/external/LibRaw
 	url = https://github.com/LibRaw/LibRaw.git
 	branch = 0.21-stable
+[submodule "doc/doxygen-awesome-css"]
+	path = doc/doxygen-awesome-css
+	url = https://github.com/jothepro/doxygen-awesome-css.git

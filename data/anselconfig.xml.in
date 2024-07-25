@@ -2324,11 +2324,25 @@
     <longdescription/>
   </dtconfig>
   <dtconfig>
-    <name>plugins/darkroom/histogram/height</name>
-    <type min="100" max="250">int</type>
-    <default>175</default>
-    <shortdescription>height of the scopes module</shortdescription>
-    <longdescription>height of the scopes module in the darkroom and tethering views</longdescription>
+    <name>plugins/darkroom/histogram/display</name>
+    <type min="0" max="2">int</type>
+    <default>0</default>
+    <shortdescription>Histogram display mode</shortdescription>
+    <longdescription />
+  </dtconfig>
+  <dtconfig>
+    <name>plugins/darkroom/histogram/op</name>
+    <type>string</type>
+    <default>gamma</default>
+    <shortdescription>Module at which the histogram is sampled</shortdescription>
+    <longdescription />
+  </dtconfig>
+  <dtconfig>
+    <name>plugins/darkroom/histogram/zoom</name>
+    <type>float</type>
+    <default>220.0</default>
+    <shortdescription>Zoom level in vectorscope</shortdescription>
+    <longdescription />
   </dtconfig>
   <dtconfig>
     <name>plugins/darkroom/atrous/aspect_percent</name>
@@ -2392,108 +2406,6 @@
     <default>56</default>
     <shortdescription>aspect ratio of color balance rgb graph in per cent</shortdescription>
     <longdescription>aspect ratio of color balance rgb graph in per cent</longdescription>
-  </dtconfig>
-  <dtconfig>
-    <name>plugins/darkroom/histogram/mode</name>
-    <type>
-      <enum>
-        <option>histogram</option>
-        <option>waveform</option>
-        <option>rgb parade</option>
-        <option>vectorscope</option>
-      </enum>
-    </type>
-    <default>histogram</default>
-    <shortdescription/>
-    <longdescription/>
-  </dtconfig>
-  <dtconfig>
-    <name>plugins/darkroom/histogram/histogram</name>
-    <type>
-      <enum>
-        <option>logarithmic</option>
-        <option>linear</option>
-      </enum>
-    </type>
-    <default>logarithmic</default>
-    <shortdescription/>
-    <longdescription/>
-  </dtconfig>
-  <dtconfig>
-    <name>plugins/darkroom/histogram/orient</name>
-    <type>
-      <enum>
-        <option>horizontal</option>
-        <option>vertical</option>
-      </enum>
-    </type>
-    <default>horizontal</default>
-    <shortdescription/>
-    <longdescription/>
-  </dtconfig>
-  <dtconfig>
-    <name>plugins/darkroom/histogram/waveform</name>
-    <type>
-      <enum>
-        <option>overlaid</option>
-        <option>parade</option>
-      </enum>
-    </type>
-    <default>overlaid</default>
-    <shortdescription/>
-    <longdescription/>
-  </dtconfig>
-  <dtconfig>
-    <name>plugins/darkroom/histogram/vectorscope</name>
-    <type>
-      <enum>
-        <option>u*v*</option>
-        <option>AzBz</option>
-      </enum>
-    </type>
-    <default>u*v*</default>
-    <shortdescription/>
-    <longdescription/>
-  </dtconfig>
-  <dtconfig>
-    <name>plugins/darkroom/histogram/vectorscope/scale</name>
-    <type>
-      <enum>
-        <option>logarithmic</option>
-        <option>linear</option>
-      </enum>
-    </type>
-    <default>logarithmic</default>
-    <shortdescription/>
-    <longdescription/>
-  </dtconfig>
-  <dtconfig>
-    <name>plugins/darkroom/histogram/vectorscope/angle</name>
-    <type>int</type>
-    <default>270</default>
-    <shortdescription/>
-    <longdescription>Angle in degrees to orient the vectorscope. 0 is the color science proper orientation (see CIE 1976 UCS diagram). 270 is what video editors are used to when using a vectorscope (with red/magenta in 12:00 position).</longdescription>
-  </dtconfig>
-  <dtconfig>
-    <name>plugins/darkroom/histogram/show_red</name>
-    <type>bool</type>
-    <default>true</default>
-    <shortdescription/>
-    <longdescription/>
-  </dtconfig>
-  <dtconfig>
-    <name>plugins/darkroom/histogram/show_green</name>
-    <type>bool</type>
-    <default>true</default>
-    <shortdescription/>
-    <longdescription/>
-  </dtconfig>
-  <dtconfig>
-    <name>plugins/darkroom/histogram/show_blue</name>
-    <type>bool</type>
-    <default>true</default>
-    <shortdescription/>
-    <longdescription/>
   </dtconfig>
   <dtconfig>
     <name>plugins/darkroom/masks/opacity</name>

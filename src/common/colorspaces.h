@@ -216,7 +216,7 @@ int dt_colorspaces_get_darktable_matrix(const char *makermodel, float *matrix);
 const dt_colorspaces_color_profile_t *dt_colorspaces_get_work_profile(const int imgid);
 
 /** return the embedded profile of a particular image **/
-const cmsHPROFILE dt_colorspaces_get_embedded_profile(const int imgid, dt_colorspaces_color_profile_type_t *type);
+const cmsHPROFILE dt_colorspaces_get_embedded_profile(const int imgid, dt_colorspaces_color_profile_type_t *type, gboolean *new_profile);
 
 /** return the output profile as set in colorout, taking export override into account if passed in. */
 const dt_colorspaces_color_profile_t *dt_colorspaces_get_output_profile(const int imgid,
@@ -305,9 +305,11 @@ static inline dt_colorspaces_color_profile_type_t sanitize_colorspaces(dt_colors
  *
  * @param imgid ID of the picture
  * @param output If not NULL, writes the generated color profile into this pointer.
+ * @param new_profile Will be set to true if a new profile was generated (aka embedded profile) and will need to be freed.
+ * If false and output profile is returned, the profile returned already exists on the public list of profiles and should not be freed.
  * @return dt_colorspaces_color_profile_type_t type of profile detected. This type is tested internally and guaranteed to work.
  */
-dt_colorspaces_color_profile_type_t dt_image_find_best_color_profile(uint32_t imgid, cmsHPROFILE *output);
+dt_colorspaces_color_profile_type_t dt_image_find_best_color_profile(uint32_t imgid, cmsHPROFILE *output, gboolean *new_profile);
 
 // clang-format off
 // modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py

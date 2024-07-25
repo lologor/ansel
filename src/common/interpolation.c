@@ -1,6 +1,6 @@
 /* --------------------------------------------------------------------------
     This file is part of darktable,
-    Copyright (C) 2012-2021 darktable developers.
+    Copyright (C) 2012-2024 darktable developers.
 
     darktable is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -44,18 +44,9 @@ enum border_mode
  * unnecessary modes in interpolation codepath */
 #define INTERPOLATION_BORDER_MODE BORDER_MIRROR
 
-// Defines minimum alignment requirement for critical SIMD code
-#define SSE_ALIGNMENT 64
-
 // Defines the maximum kernel half length
 // !! Make sure to sync this with the filter array !!
 #define MAX_HALF_FILTER_WIDTH 3
-
-// Add code for timing resampling function
-#define DEBUG_RESAMPLING_TIMING 0
-
-// Add debug info messages to stderr
-#define DEBUG_PRINT_INFO 0
 
 // Add *verbose* (like one msg per pixel out) debug message to stderr
 #define DEBUG_PRINT_VERBOSE 0
@@ -64,38 +55,6 @@ enum border_mode
  * Debug helpers
  * ------------------------------------------------------------------------*/
 
-#if DEBUG_RESAMPLING_TIMING
-#include <sys/time.h>
-#endif
-
-#if DEBUG_PRINT_INFO
-#define debug_info(...)                                                                                      \
-  do                                                                                                         \
-  {                                                                                                          \
-    fprintf(stderr, __VA_ARGS__);                                                                            \
-  } while(0)
-#else
-#define debug_info(...)
-#endif
-
-#if DEBUG_PRINT_VERBOSE
-#define debug_extra(...)                                                                                     \
-  do                                                                                                         \
-  {                                                                                                          \
-    fprintf(stderr, __VA_ARGS__);                                                                            \
-  } while(0)
-#else
-#define debug_extra(...)
-#endif
-
-#if DEBUG_RESAMPLING_TIMING
-static inline int64_t getts()
-{
-  struct timeval t;
-  gettimeofday(&t, NULL);
-  return t.tv_sec * INT64_C(1000000) + t.tv_usec;
-}
-#endif
 
 /* --------------------------------------------------------------------------
  * Generic helpers
@@ -105,7 +64,10 @@ static inline int64_t getts()
  * @param idx index to filter
  * @param length length of line
  */
-static inline int clip(int i, int min, int max, enum border_mode mode)
+static inline ssize_t _clip(ssize_t i,
+                            const ssize_t min,
+                            const ssize_t max,
+                            enum border_mode mode)
 {
   switch(mode)
   {
@@ -122,21 +84,26 @@ static inline int clip(int i, int min, int max, enum border_mode mode)
     case BORDER_MIRROR:
       if(i < min)
       {
-        i = min - i;
+        // i == min - 1  -->  min + 1
+        // i == min - 2  -->  min + 2, etc.
+        // but as min == 0 in all current cases, this really optimizes to i = -i
+        i = min + (min - i);
       }
       else if(i > max)
       {
-        i = 2 * max - i;
+        // i == max + 1  -->  max - 1
+        // i == max + 2  -->  max - 2, etc.
+        i = max - (i - max);
       }
       break;
     case BORDER_WRAP:
       if(i < min)
       {
-        i = max - (min - i);
+        i = 1 + max - (min - i);
       }
       else if(i > max)
       {
-        i = min + (i - max);
+        i = min + (i - max) - 1;
       }
       break;
     case BORDER_CLAMP:
@@ -153,8 +120,12 @@ static inline int clip(int i, int min, int max, enum border_mode mode)
   return i;
 }
 
-static inline void prepare_tap_boundaries(int *tap_first, int *tap_last, const enum border_mode mode,
-                                          const int filterwidth, const int t, const int max)
+static inline void _prepare_tap_boundaries(int *tap_first,
+                                           int *tap_last,
+                                           const enum border_mode mode,
+                                           const int filterwidth,
+                                           const int t,
+                                           const int max)
 {
   /* Check lower bound pixel index and skip as many pixels as necessary to
    * fall into range */
@@ -172,20 +143,6 @@ static inline void prepare_tap_boundaries(int *tap_first, int *tap_last, const e
   }
 }
 
-/** Make sure an aligned chunk will not misalign its following chunk
- * proposing an adapted length
- *
- * @param l Length required for current chunk
- * @param align Required alignment for next chunk
- *
- * @return Required length for keeping alignment ok if chaining data chunks
- */
-static inline size_t increase_for_alignment(size_t l, size_t align)
-{
-  align -= 1;
-  return (l + align) & (~align);
-}
-
 /* --------------------------------------------------------------------------
  * Interpolation kernels
  * ------------------------------------------------------------------------*/
@@ -194,100 +151,104 @@ static inline size_t increase_for_alignment(size_t l, size_t align)
  * Bilinear interpolation
  * ------------------------------------------------------------------------*/
 
-static inline float bilinear(float width, float t)
+static float _maketaps_bilinear(float *taps,
+                                const size_t num_taps,
+                                const float  width,
+                                const float first_tap,
+                                const float interval)
 {
-  float r;
-  t = fabsf(t);
-  if(t > 1.f)
-  {
-    r = 0.f;
-  }
-  else
-  {
-    r = 1.f - t;
-  }
-  return r;
-}
+  static const dt_aligned_pixel_t bootstrap = { 0.0f, 1.0f, 2.0f, 3.0f };
+  dt_aligned_pixel_t iter;
+  dt_aligned_pixel_t vt;
+  for_four_channels(c)
+    iter[c] = 4.0f * interval;
+  for_four_channels(c)
+    vt[c] = first_tap + bootstrap[c] * interval;
 
-#if defined(__SSE2__)
-static inline __m128 bilinear_sse(__m128 width, __m128 t)
-{
-  static const __m128 one = { 1.f, 1.f, 1.f, 1.f };
-  return _mm_sub_ps(one, _mm_abs_ps(t));
+  const int runs = (num_taps + 3) / 4;
+
+  for(size_t i = 0; i < runs; i++)
+  {
+    // compute and store the values for the current four taps
+    for_four_channels(c)
+      taps[4*i + c] = 1.0f - (vt[c] < 0.0f ? -vt[c] : vt[c]);
+    // prepare next iteration
+    for_four_channels(c)
+      vt[c] += iter[c];
+  }
+  return 1.0f; //kernel norm is 1.0f by construction
 }
-#endif
 
 /* --------------------------------------------------------------------------
  * Bicubic interpolation
  * ------------------------------------------------------------------------*/
 
-static inline float bicubic(float width, float t)
+static float _maketaps_bicubic(float *taps,
+                               const size_t num_taps,
+                               const float  width,
+                               const float first_tap,
+                               const float interval)
 {
-  float r;
-  t = fabsf(t);
-  if(t >= 2.f)
+  static const dt_aligned_pixel_t bootstrap = { 0.0f, 1.0f, 2.0f, 3.0f };
+  static const dt_aligned_pixel_t half = { .5f, .5f, .5f, .5f };
+  static const dt_aligned_pixel_t two = { 2.f, 2.f, 2.f, 2.f };
+  static const dt_aligned_pixel_t three = { 3.f, 3.f, 3.f, 3.f };
+  static const dt_aligned_pixel_t four = { 4.f, 4.f, 4.f, 4.f };
+  static const dt_aligned_pixel_t five = { 5.f, 5.f, 5.f, 5.f };
+  static const dt_aligned_pixel_t eight = { 8.f, 8.f, 8.f, 8.f };
+  dt_aligned_pixel_t iter;
+  dt_aligned_pixel_t vt;
+  for_four_channels(c)
+    iter[c] = 4.0f * interval;
+  for_four_channels(c)
+    vt[c] = first_tap + bootstrap[c] * interval;
+
+  const int runs = (num_taps + 3) / 4;
+
+  for(size_t i = 0; i < runs; i++)
   {
-    r = 0.f;
+    // compute and store the values for the current four taps
+    dt_aligned_pixel_t vt_abs;
+    dt_aligned_pixel_t t2;   // tap-squared
+    for_four_channels(c)
+    {
+      vt_abs[c] = vt[c] < 0.0f ? -vt[c] : vt[c];
+      t2[c] = vt[c] * vt[c];
+    }
+    dt_aligned_pixel_t t5;
+    dt_aligned_pixel_t mt2_add_t5_sub_8;
+    for_four_channels(c)
+    {
+      t5[c] = five[c] * vt_abs[c];
+      mt2_add_t5_sub_8[c] = t5[c] - eight[c] - t2[c];
+    }
+    dt_aligned_pixel_t b;
+    dt_aligned_pixel_t r12;
+    for_four_channels(c)
+    {
+      b[c] = vt_abs[c] * mt2_add_t5_sub_8[c] + four[c];
+      r12[c] = b[c] * half[c]; // the value for 1 < t < 2
+    }
+    dt_aligned_pixel_t t23;
+    dt_aligned_pixel_t e;
+    dt_aligned_pixel_t r01;
+    for_four_channels(c)
+    {
+      t23[c] = three[c] * t2[c] - t5[c];
+      e[c] = t23[c] * vt_abs[c] + two[c];
+      r01[c] = e[c] * half[c];
+    }
+    // combine the values depending on whether abs(tap) is less than one or not
+    for_four_channels(c)
+    {
+      taps[4*i + c] = vt_abs[c] <= 1.0f ? r01[c] : r12[c];
+    }
+    // prepare next iteration
+    for_four_channels(c)
+      vt[c] += iter[c];
   }
-  else if(t > 1.f && t < 2.f)
-  {
-    float t2 = t * t;
-    r = 0.5f * (t * (-t2 + 5.f * t - 8.f) + 4.f);
-  }
-  else
-  {
-    float t2 = t * t;
-    r = 0.5f * (t * (3.f * t2 - 5.f * t) + 2.f);
-  }
-  return r;
+  return 1.0f; //kernel norm is 1.0f by construction
 }
-
-#if defined(__SSE2__)
-static inline __m128 bicubic_sse(__m128 width, __m128 t)
-{
-  static const __m128 half = { .5f, .5f, .5f, .5f };
-  static const __m128 one = { 1.f, 1.f, 1.f, 1.f };
-  static const __m128 two = { 2.f, 2.f, 2.f, 2.f };
-  static const __m128 three = { 3.f, 3.f, 3.f, 3.f };
-  static const __m128 four = { 4.f, 4.f, 4.f, 4.f };
-  static const __m128 five = { 5.f, 5.f, 5.f, 5.f };
-  static const __m128 eight = { 8.f, 8.f, 8.f, 8.f };
-
-  t = _mm_abs_ps(t);
-  const __m128 t2 = _mm_mul_ps(t, t);
-
-  /* Compute 1 < t < 2 case:
-   * 0.5f*(t*(-t2 + 5.f*t - 8.f) + 4.f)
-   * half*(t*(mt2 + t5 - eight) + four)
-   * half*(t*(mt2 + t5_sub_8) + four)
-   * half*(t*(mt2_add_t5_sub_8) + four) */
-  const __m128 t5 = _mm_mul_ps(five, t);
-  const __m128 t5_sub_8 = _mm_sub_ps(t5, eight);
-  const __m128 zero = _mm_setzero_ps();
-  const __m128 mt2 = _mm_sub_ps(zero, t2);
-  const __m128 mt2_add_t5_sub_8 = _mm_add_ps(mt2, t5_sub_8);
-  const __m128 a = _mm_mul_ps(t, mt2_add_t5_sub_8);
-  const __m128 b = _mm_add_ps(a, four);
-  __m128 r12 = _mm_mul_ps(b, half);
-
-  /* Compute case < 1
-   * 0.5f*(t*(3.f*t2 - 5.f*t) + 2.f) */
-  const __m128 t23 = _mm_mul_ps(three, t2);
-  const __m128 c = _mm_sub_ps(t23, t5);
-  const __m128 d = _mm_mul_ps(t, c);
-  const __m128 e = _mm_add_ps(d, two);
-  __m128 r01 = _mm_mul_ps(half, e);
-
-  // Compute masks fr keeping correct components
-  const __m128 mask01 = _mm_cmple_ps(t, one);
-  const __m128 mask12 = _mm_cmpgt_ps(t, one);
-  r01 = _mm_and_ps(mask01, r01);
-  r12 = _mm_and_ps(mask12, r12);
-
-
-  return _mm_or_ps(r01, r12);
-}
-#endif
 
 /* --------------------------------------------------------------------------
  * Lanczos interpolation
@@ -298,15 +259,15 @@ static inline __m128 bicubic_sse(__m128 width, __m128 t)
 #if 0
 // Reference version left here for ... documentation
 static inline float
-lanczos(float width, float t)
+lanczos(const float width, const float t)
 {
   float r;
 
-  if (t<-width || t>width)
+  if(t<-width || t>width)
   {
     r = 0.f;
   }
-  else if (t>-DT_LANCZOS_EPSILON && t<DT_LANCZOS_EPSILON)
+  else if(t>-DT_LANCZOS_EPSILON && t<DT_LANCZOS_EPSILON)
   {
     r = 1.f;
   }
@@ -334,58 +295,77 @@ lanczos(float width, float t)
  * the range -width < t < width so we can additionally avoid the
  * range check.  */
 
-static inline float lanczos(float width, float t)
+static float _maketaps_lanczos(float *taps,
+                               const size_t num_taps,
+                               const float width,
+                               const float first_tap,
+                               const float interval)
 {
-  /* Compute a value for sinf(pi.t) in [-pi pi] for which the value will be
-   * correct */
-  int a = (int)t;
-  float r = t - (float)a;
+  static const dt_aligned_pixel_t bootstrap = { 0.0f, 1.0f, 2.0f, 3.0f };
+  dt_aligned_pixel_t iter;
+  dt_aligned_pixel_t vt;
+  for_four_channels(c)
+    iter[c] = 4.0f * interval;
+  for_four_channels(c)
+    vt[c] = first_tap + bootstrap[c] * interval;
+  dt_aligned_pixel_t vw;
+  for_four_channels(c)
+    vw[c] = width;
 
-  // Compute the correct sign for sinf(pi.r)
-  union
+  const int runs = (num_taps + 3) / 4;
+
+  for(size_t i = 0; i < runs; i++)
   {
-    float f;
-    uint32_t i;
-  } sign;
-  sign.i = ((a & 1) << 31) | 0x3f800000;
-
-  return (DT_LANCZOS_EPSILON + width * sign.f * sinf_fast(M_PI_F * r) * sinf_fast(M_PI_F * t / width))
-         / (DT_LANCZOS_EPSILON + M_PI_F * M_PI_F * t * t);
-}
-
-#if defined(__SSE2__)
-static inline __m128 lanczos_sse2(__m128 width, __m128 t)
-{
-  /* Compute a value for sinf(pi.t) in [-pi pi] for which the value will be
-   * correct */
-  __m128i a = _mm_cvtps_epi32(t);
-  __m128 r = _mm_sub_ps(t, _mm_cvtepi32_ps(a));
-
-  // Compute the correct sign for sinf(pi.r)
-  static const uint32_t fone[] __attribute__((aligned(SSE_ALIGNMENT)))
-  = { 0x3f800000, 0x3f800000, 0x3f800000, 0x3f800000 };
-  static const uint32_t ione[] __attribute__((aligned(SSE_ALIGNMENT))) = { 1, 1, 1, 1 };
-  static const __m128 eps
+    // compute and store the values for the current four taps
+    static const dt_aligned_pixel_t eps
       = { DT_LANCZOS_EPSILON, DT_LANCZOS_EPSILON, DT_LANCZOS_EPSILON, DT_LANCZOS_EPSILON };
-  static const __m128 pi = { M_PI, M_PI, M_PI, M_PI };
-  static const __m128 pi2 = { M_PI * M_PI, M_PI * M_PI, M_PI * M_PI, M_PI * M_PI };
-
-  __m128i isign = _mm_and_si128(*(__m128i *)ione, a);
-  isign = _mm_slli_epi64(isign, 31);
-  isign = _mm_or_si128(*(__m128i *)fone, isign);
-  const __m128 fsign = _mm_castsi128_ps(isign);
-
-  __m128 num = _mm_mul_ps(width, fsign);
-  num = _mm_mul_ps(num, sinf_fast_sse(_mm_mul_ps(pi, r)));
-  num = _mm_mul_ps(num, sinf_fast_sse(_mm_div_ps(_mm_mul_ps(pi, t), width)));
-  num = _mm_add_ps(eps, num);
-
-  __m128 den = _mm_mul_ps(pi2, _mm_mul_ps(t, t));
-  den = _mm_add_ps(eps, den);
-
-  return _mm_div_ps(num, den);
+    static const dt_aligned_pixel_t pi = { M_PI_F, M_PI_F, M_PI_F, M_PI_F };
+    static const dt_aligned_pixel_t pi2
+      = { M_PI_F*M_PI_F, M_PI_F*M_PI_F, M_PI_F*M_PI_F, M_PI_F*M_PI_F };
+    dt_aligned_pixel_t r;
+    dt_aligned_pixel_t sign;
+    for_four_channels(c)
+    {
+      int a = (int)vt[c];
+      r[c] = vt[c] - (float)a;
+      sign[c] = (a & 1) ? -1.0f : 1.0f;
+    }
+    dt_aligned_pixel_t sine_arg1;
+    dt_aligned_pixel_t sine_arg2;
+    for_four_channels(c)
+    {
+      sine_arg1[c] = pi[c] * r[c];
+      sine_arg2[c] = pi[c] * vt[c] / vw[c];
+    }
+    dt_aligned_pixel_t sine1;
+    dt_aligned_pixel_t sine2;
+    dt_vector_sin(sine_arg1, sine1);
+    dt_vector_sin(sine_arg2, sine2);
+    dt_aligned_pixel_t num;
+    dt_aligned_pixel_t denom;
+    for_four_channels(c)
+    {
+      num[c] = (vw[c] * sign[c] * sine1[c] * sine2[c]) + eps[c];
+      denom[c] = (pi2[c] * vt[c] * vt[c]) + eps[c];
+    }
+    for_four_channels(c)
+    {
+      taps[4*i + c] = num[c] / denom[c];
+    }
+    // prepare next iteration
+    for_four_channels(c)
+      vt[c] += iter[c];
+  }
+  // we need to compute the norm, even though it is very close to 1.0
+  // and causes an increase of maxDE on the integration tests only
+  // from 1.1 to 1.7, because not doing so generates visible moire
+  // banding in smooth gradients.  Unfortunately, this costs an extra
+  // 15-20% runtime....
+  float norm = 0.0f;
+  for(size_t i = 0; i < num_taps; i++)
+    norm += taps[i];
+  return norm;
 }
-#endif
 
 #undef DT_LANCZOS_EPSILON
 
@@ -402,34 +382,22 @@ static const struct dt_interpolation dt_interpolator[] = {
   {.id = DT_INTERPOLATION_BILINEAR,
    .name = "bilinear",
    .width = 1,
-   .func = &bilinear,
-#if defined(__SSE2__)
-   .funcsse = &bilinear_sse
-#endif
+   .maketaps = &_maketaps_bilinear,
   },
   {.id = DT_INTERPOLATION_BICUBIC,
    .name = "bicubic",
    .width = 2,
-   .func = &bicubic,
-#if defined(__SSE2__)
-   .funcsse = &bicubic_sse
-#endif
+   .maketaps = &_maketaps_bicubic,
   },
   {.id = DT_INTERPOLATION_LANCZOS2,
    .name = "lanczos2",
    .width = 2,
-   .func = &lanczos,
-#if defined(__SSE2__)
-   .funcsse = &lanczos_sse2
-#endif
+   .maketaps = &_maketaps_lanczos,
   },
   {.id = DT_INTERPOLATION_LANCZOS3,
    .name = "lanczos3",
    .width = 3,
-   .func = &lanczos,
-#if defined(__SSE2__)
-   .funcsse = &lanczos_sse2
-#endif
+   .maketaps = &_maketaps_lanczos,
   },
 };
 
@@ -437,17 +405,17 @@ static const struct dt_interpolation dt_interpolator[] = {
  * Kernel utility methods
  * ------------------------------------------------------------------------*/
 
-/** Computes an upsampling filtering kernel
- *
- * @param itor [in] Interpolator used
- * @param kernel [out] resulting itor->width*2 filter taps
- * @param norm [out] Kernel norm
- * @param first [out] first input sample index used
- * @param t [in] Interpolated coordinate */
-static inline void compute_upsampling_kernel_plain(const struct dt_interpolation *itor, float *kernel,
-                                                   float *norm, int *first, float t)
+static inline float _compute_upsampling_kernel(const struct dt_interpolation *itor,
+                                               float *kernel,
+                                               int *first,
+                                               float t)
 {
-  int f = (int)t - itor->width + 1;
+  // find first pixel contributing to the filter's kernel.  We need
+  // floorf() because a simple cast to int truncates toward zero,
+  // yielding an incorrect result for the slightly-negative positions
+  // that can occur at the top and left edges when doing perspective
+  // correction
+  int f = (int)floorf(t) - itor->width + 1;
   if(first)
   {
     *first = f;
@@ -457,150 +425,13 @@ static inline void compute_upsampling_kernel_plain(const struct dt_interpolation
    * filtered sample position */
   t = t - (float)f;
 
-  // Will hold kernel norm
-  float n = 0.f;
-
-  // Compute the raw kernel
-  for(int i = 0; i < 2 * itor->width; i++)
-  {
-    float tap = itor->func((float)itor->width, t);
-    n += tap;
-    kernel[i] = tap;
-    t -= 1.f;
-  }
-  if(norm)
-  {
-    *norm = n;
-  }
-}
-
-#if defined(__SSE2__)
-/** Computes an upsampling filtering kernel (SSE version, four taps per inner loop)
- *
- * @param itor [in] Interpolator used
- * @param kernel [out] resulting itor->width*2 filter taps (array must be at least (itor->width*2+3)/4*4
- *floats long)
- * @param norm [out] Kernel norm
- * @param first [out] first input sample index used
- * @param t [in] Interpolated coordinate
- *
- * @return kernel norm
- */
-static inline void compute_upsampling_kernel_sse(const struct dt_interpolation *itor, float *kernel,
-                                                 float *norm, int *first, float t)
-{
-  int f = (int)t - itor->width + 1;
-  if(first)
-  {
-    *first = f;
-  }
-
-  /* Find closest integer position and then offset that to match first
-   * filtered sample position */
-  t = t - (float)f;
-
-  // Prepare t vector to compute four values a loop
-  static const __m128 bootstrap = { 0.f, -1.f, -2.f, -3.f };
-  static const __m128 iter = { -4.f, -4.f, -4.f, -4.f };
-  __m128 vt = _mm_add_ps(_mm_set_ps1(t), bootstrap);
-  __m128 vw = _mm_set_ps1((float)itor->width);
-
-  // Prepare counters (math kept stupid for understanding)
-  int i = 0;
-  const int runs = (2 * itor->width + 3) / 4;
-
-  while(i < runs)
-  {
-    // Compute the values
-    const __m128 vr = itor->funcsse(vw, vt);
-
-    // Save result
-    *(__m128 *)kernel = vr;
-
-    // Prepare next iteration
-    vt = _mm_add_ps(vt, iter);
-    kernel += 4;
-    i++;
-  }
-
-  // compute norm now
-  if(norm)
-  {
-    float n = 0.f;
-    i = 0;
-    kernel -= 4 * runs;
-    while(i < 2 * itor->width)
-    {
-      n += *kernel;
-      kernel++;
-      i++;
-    }
-    *norm = n;
-  }
-}
-#endif
-
-static inline void compute_upsampling_kernel(const struct dt_interpolation *itor, float *kernel, float *norm,
-                                             int *first, float t)
-{
-  if(darktable.codepath.OPENMP_SIMD) return compute_upsampling_kernel_plain(itor, kernel, norm, first, t);
-#if defined(__SSE2__)
-  else if(darktable.codepath.SSE2)
-    return compute_upsampling_kernel_sse(itor, kernel, norm, first, t);
-#endif
-  else
-    dt_unreachable_codepath();
-}
-
-/** Computes a downsampling filtering kernel
- *
- * @param itor [in] Interpolator used
- * @param kernelsize [out] Number of taps
- * @param kernel [out] resulting taps (at least itor->width/inoout elements for no overflow)
- * @param norm [out] Kernel norm
- * @param first [out] index of the first sample for which the kernel is to be applied
- * @param outoinratio [in] "out samples" over "in samples" ratio
- * @param xout [in] Output coordinate */
-static inline void compute_downsampling_kernel_plain(const struct dt_interpolation *itor, int *taps,
-                                                     int *first, float *kernel, float *norm,
-                                                     float outoinratio, int xout)
-{
-  // Keep this at hand
-  const float w = (float)itor->width;
-
-  /* Compute the phase difference between output pixel and its
-   * input corresponding input pixel */
-  const float xin = ceil_fast(((float)xout - w) / outoinratio);
-  if(first)
-  {
-    *first = (int)xin;
-  }
-
-  // Compute first interpolator parameter
-  float t = xin * outoinratio - (float)xout;
-
-  // Will hold kernel norm
-  float n = 0.f;
-
-  // Compute all filter taps
-  *taps = (int)((w - t) / outoinratio);
-  for(int i = 0; i < *taps; i++)
-  {
-    *kernel = itor->func(w, t);
-    n += *kernel;
-    t += outoinratio;
-    kernel++;
-  }
-
-  if(norm)
-  {
-    *norm = n;
-  }
+  // compute the taps and return the kernel norm
+  return itor->maketaps(kernel, 2*itor->width, itor->width, t, -1.0f);
 }
 
 
-#if defined(__SSE2__)
-/** Computes a downsampling filtering kernel (SSE version, four taps per inner loop iteration)
+/** Computes a downsampling filtering kernel (vectorized version, four taps
+ * per inner loop iteration)
  *
  * @param itor [in] Interpolator used
  * @param kernelsize [out] Number of taps
@@ -609,8 +440,13 @@ static inline void compute_downsampling_kernel_plain(const struct dt_interpolati
  * @param first [out] index of the first sample for which the kernel is to be applied
  * @param outoinratio [in] "out samples" over "in samples" ratio
  * @param xout [in] Output coordinate */
-static inline void compute_downsampling_kernel_sse(const struct dt_interpolation *itor, int *taps, int *first,
-                                                   float *kernel, float *norm, float outoinratio, int xout)
+static inline void _compute_downsampling_kernel(const struct dt_interpolation *itor,
+                                                int *taps,
+                                                int *first,
+                                                float *kernel,
+                                                float *norm,
+                                                const float outoinratio,
+                                                const int xout)
 {
   // Keep this at hand
   const float w = (float)itor->width;
@@ -627,60 +463,16 @@ static inline void compute_downsampling_kernel_sse(const struct dt_interpolation
   float t = xin * outoinratio - (float)xout;
 
   // Compute all filter taps
-  *taps = (int)((w - t) / outoinratio);
-
-  // Bootstrap vector t
-  static const __m128 bootstrap = { 0.f, 1.f, 2.f, 3.f };
-  const __m128 iter = _mm_set_ps1(4.f * outoinratio);
-  const __m128 vw = _mm_set_ps1(w);
-  __m128 vt = _mm_add_ps(_mm_set_ps1(t), _mm_mul_ps(_mm_set_ps1(outoinratio), bootstrap));
-
-  // Prepare counters (math kept stupid for understanding)
-  int i = 0;
-  const int runs = (*taps + 3) / 4;
-
-  while(i < runs)
+  int num_taps = *taps = (int)((w - t) / outoinratio);
+  itor->maketaps(kernel, num_taps, itor->width, t, outoinratio);
+  // compute the kernel norm if requested
+  if (norm)
   {
-    // Compute the values
-    const __m128 vr = itor->funcsse(vw, vt);
-
-    // Save result
-    *(__m128 *)kernel = vr;
-
-    // Prepare next iteration
-    vt = _mm_add_ps(vt, iter);
-    kernel += 4;
-    i++;
-  }
-
-  // compute norm now
-  if(norm)
-  {
-    float n = 0.f;
-    i = 0;
-    kernel -= 4 * runs;
-    while(i < *taps)
-    {
-      n += *kernel;
-      kernel++;
-      i++;
-    }
+    float n  = 0.0f;
+    for(size_t i = 0; i < num_taps; i++)
+      n += kernel[i];
     *norm = n;
   }
-}
-#endif
-
-static inline void compute_downsampling_kernel(const struct dt_interpolation *itor, int *taps, int *first,
-                                               float *kernel, float *norm, float outoinratio, int xout)
-{
-  if(darktable.codepath.OPENMP_SIMD)
-    return compute_downsampling_kernel_plain(itor, taps, first, kernel, norm, outoinratio, xout);
-#if defined(__SSE2__)
-  else if(darktable.codepath.SSE2)
-    return compute_downsampling_kernel_sse(itor, taps, first, kernel, norm, outoinratio, xout);
-#endif
-  else
-    dt_unreachable_codepath();
 }
 
 /* --------------------------------------------------------------------------
@@ -689,20 +481,23 @@ static inline void compute_downsampling_kernel(const struct dt_interpolation *it
 
 #define MAX_KERNEL_REQ ((2 * (MAX_HALF_FILTER_WIDTH) + 3) & (~3))
 
-float dt_interpolation_compute_sample(const struct dt_interpolation *itor, const float *in, const float x,
-                                      const float y, const int width, const int height,
-                                      const int samplestride, const int linestride)
+float dt_interpolation_compute_sample(const struct dt_interpolation *itor,
+                                      const float *in,
+                                      const float x,
+                                      const float y,
+                                      const int width,
+                                      const int height,
+                                      const int samplestride,
+                                      const int linestride)
 {
   assert(itor->width < (MAX_HALF_FILTER_WIDTH + 1));
 
-  float kernelh[MAX_KERNEL_REQ] __attribute__((aligned(SSE_ALIGNMENT)));
-  float kernelv[MAX_KERNEL_REQ] __attribute__((aligned(SSE_ALIGNMENT)));
+  float DT_ALIGNED_ARRAY kernelh[MAX_KERNEL_REQ];
+  float DT_ALIGNED_ARRAY kernelv[MAX_KERNEL_REQ];
 
   // Compute both horizontal and vertical kernels
-  float normh;
-  float normv;
-  compute_upsampling_kernel(itor, kernelh, &normh, NULL, x);
-  compute_upsampling_kernel(itor, kernelv, &normv, NULL, y);
+  float normh = _compute_upsampling_kernel(itor, kernelh, NULL, x);
+  float normv = _compute_upsampling_kernel(itor, kernelv, NULL, y);
 
   int ix = (int)x;
   int iy = (int)y;
@@ -733,7 +528,7 @@ float dt_interpolation_compute_sample(const struct dt_interpolation *itor, const
       s += kernelv[i] * h;
       in += linestride;
     }
-    r = s / (normh * normv);
+    r = fmaxf(0.0f, s / (normh * normv));
   }
   else if(ix >= 0 && iy >= 0 && ix < width && iy < height)
   {
@@ -748,28 +543,30 @@ float dt_interpolation_compute_sample(const struct dt_interpolation *itor, const
 
     int xtap_first;
     int xtap_last;
-    prepare_tap_boundaries(&xtap_first, &xtap_last, bordermode, 2 * itor->width, ix, width);
+    _prepare_tap_boundaries(&xtap_first, &xtap_last,
+                           bordermode, 2 * itor->width, ix, width);
 
     int ytap_first;
     int ytap_last;
-    prepare_tap_boundaries(&ytap_first, &ytap_last, bordermode, 2 * itor->width, iy, height);
+    _prepare_tap_boundaries(&ytap_first, &ytap_last,
+                           bordermode, 2 * itor->width, iy, height);
 
     // Apply the kernel
     float s = 0.f;
-    for(int i = ytap_first; i < ytap_last; i++)
+    for(ssize_t i = ytap_first; i < ytap_last; i++)
     {
-      const int clip_y = clip(iy + i, 0, height - 1, bordermode);
+      const ssize_t clip_y = _clip(iy + i, 0, height - 1, bordermode);
       float h = 0.0f;
-      for(int j = xtap_first; j < xtap_last; j++)
+      for(ssize_t j = xtap_first; j < xtap_last; j++)
       {
-        const int clip_x = clip(ix + j, 0, width - 1, bordermode);
+        const ssize_t clip_x = _clip(ix + j, 0, width - 1, bordermode);
         const float *ipixel = in + clip_y * linestride + clip_x * samplestride;
         h += kernelh[j] * ipixel[0];
       }
       s += kernelv[i] * h;
     }
 
-    r = s / (normh * normv);
+    r = fmaxf(0.0f, s / (normh * normv));
   }
   else
   {
@@ -783,230 +580,24 @@ float dt_interpolation_compute_sample(const struct dt_interpolation *itor, const
  * Pixel interpolation function (see usage in iop/lens.c and iop/clipping.c)
  * ------------------------------------------------------------------------*/
 
-static void dt_interpolation_compute_pixel4c_plain(const struct dt_interpolation *itor, const float *in,
-                                                   float *out, const float x, const float y, const int width,
-                                                   const int height, const int linestride)
-{
-  assert(itor->width < (MAX_HALF_FILTER_WIDTH + 1));
-
-  // Quite a bit of space for kernels
-  float kernelh[MAX_KERNEL_REQ] __attribute__((aligned(SSE_ALIGNMENT)));
-  float kernelv[MAX_KERNEL_REQ] __attribute__((aligned(SSE_ALIGNMENT)));
-
-  // Compute both horizontal and vertical kernels
-  float normh;
-  float normv;
-  compute_upsampling_kernel(itor, kernelh, &normh, NULL, x);
-  compute_upsampling_kernel(itor, kernelv, &normv, NULL, y);
-
-  // Precompute the inverse of the filter norm for later use
-  const float oonorm = (1.f / (normh * normv));
-
-  /* Now 2 cases, the pixel + filter width goes outside the image
-   * in that case we have to use index clipping to keep all reads
-   * in the input image (slow path) or we are sure it won't fall
-   * outside and can do more simple code */
-  int ix = (int)x;
-  int iy = (int)y;
-
-  if(ix >= (itor->width - 1) && iy >= (itor->width - 1) && ix < (width - itor->width)
-     && iy < (height - itor->width))
-  {
-    // Inside image boundary case
-
-    // Go to top left pixel
-    in = (float *)in + linestride * iy + ix * 4;
-    in = in - (itor->width - 1) * (4 + linestride);
-
-    // Apply the kernel
-    dt_aligned_pixel_t pixel = { 0.0f, 0.0f, 0.0f, 0.0f };
-    for(int i = 0; i < 2 * itor->width; i++)
-    {
-      dt_aligned_pixel_t h = { 0.0f, 0.0f, 0.0f, 0.0f };
-      for(int j = 0; j < 2 * itor->width; j++)
-      {
-        for(int c = 0; c < 3; c++) h[c] += kernelh[j] * in[j * 4 + c];
-      }
-      for(int c = 0; c < 3; c++) pixel[c] += kernelv[i] * h[c];
-      in += linestride;
-    }
-
-    for(int c = 0; c < 3; c++) out[c] = oonorm * pixel[c];
-  }
-  else if(ix >= 0 && iy >= 0 && ix < width && iy < height)
-  {
-    // At least a valid coordinate
-
-    // Point to the upper left pixel index wise
-    iy -= itor->width - 1;
-    ix -= itor->width - 1;
-
-    static const enum border_mode bordermode = INTERPOLATION_BORDER_MODE;
-    assert(bordermode != BORDER_CLAMP); // XXX in clamp mode, norms would be wrong
-
-    int xtap_first;
-    int xtap_last;
-    prepare_tap_boundaries(&xtap_first, &xtap_last, bordermode, 2 * itor->width, ix, width);
-
-    int ytap_first;
-    int ytap_last;
-    prepare_tap_boundaries(&ytap_first, &ytap_last, bordermode, 2 * itor->width, iy, height);
-
-    // Apply the kernel
-    dt_aligned_pixel_t pixel = { 0.0f, 0.0f, 0.0f, 0.0f };
-    for(int i = ytap_first; i < ytap_last; i++)
-    {
-      const int clip_y = clip(iy + i, 0, height - 1, bordermode);
-      dt_aligned_pixel_t h = { 0.0f, 0.0f, 0.0f, 0.0f };
-      for(int j = xtap_first; j < xtap_last; j++)
-      {
-        const int clip_x = clip(ix + j, 0, width - 1, bordermode);
-        const float *ipixel = in + clip_y * linestride + clip_x * 4;
-        for(int c = 0; c < 3; c++) h[c] += kernelh[j] * ipixel[c];
-      }
-      for(int c = 0; c < 3; c++) pixel[c] += kernelv[i] * h[c];
-    }
-
-    for(int c = 0; c < 3; c++) out[c] = oonorm * pixel[c];
-  }
-  else
-  {
-    for(int c = 0; c < 3; c++) out[c] = 0.0f;
-  }
-}
-
-#if defined(__SSE2__)
-static void dt_interpolation_compute_pixel4c_sse(const struct dt_interpolation *itor, const float *in,
-                                                 float *out, const float x, const float y, const int width,
-                                                 const int height, const int linestride)
-{
-  assert(itor->width < (MAX_HALF_FILTER_WIDTH + 1));
-
-  // Quite a bit of space for kernels
-  float kernelh[MAX_KERNEL_REQ] __attribute__((aligned(SSE_ALIGNMENT)));
-  float kernelv[MAX_KERNEL_REQ] __attribute__((aligned(SSE_ALIGNMENT)));
-  __m128 vkernelh[2 * MAX_HALF_FILTER_WIDTH];
-  __m128 vkernelv[2 * MAX_HALF_FILTER_WIDTH];
-
-  // Compute both horizontal and vertical kernels
-  float normh;
-  float normv;
-  compute_upsampling_kernel(itor, kernelh, &normh, NULL, x);
-  compute_upsampling_kernel(itor, kernelv, &normv, NULL, y);
-
-  // We will process four components a time, duplicate the information
-  for(int i = 0; i < 2 * itor->width; i++)
-  {
-    vkernelh[i] = _mm_set_ps1(kernelh[i]);
-    vkernelv[i] = _mm_set_ps1(kernelv[i]);
-  }
-
-  // Precompute the inverse of the filter norm for later use
-  const __m128 oonorm = _mm_set_ps1(1.f / (normh * normv));
-
-  /* Now 2 cases, the pixel + filter width goes outside the image
-   * in that case we have to use index clipping to keep all reads
-   * in the input image (slow path) or we are sure it won't fall
-   * outside and can do more simple code */
-  int ix = (int)x;
-  int iy = (int)y;
-
-  if(ix >= (itor->width - 1) && iy >= (itor->width - 1) && ix < (width - itor->width)
-     && iy < (height - itor->width))
-  {
-    // Inside image boundary case
-
-    // Go to top left pixel
-    in = (float *)in + linestride * iy + ix * 4;
-    in = in - (itor->width - 1) * (4 + linestride);
-
-    // Apply the kernel
-    __m128 pixel = _mm_setzero_ps();
-    for(int i = 0; i < 2 * itor->width; i++)
-    {
-      __m128 h = _mm_setzero_ps();
-      for(int j = 0; j < 2 * itor->width; j++)
-      {
-        h = _mm_add_ps(h, _mm_mul_ps(vkernelh[j], *(__m128 *)&in[j * 4]));
-      }
-      pixel = _mm_add_ps(pixel, _mm_mul_ps(vkernelv[i], h));
-      in += linestride;
-    }
-
-    *(__m128 *)out = _mm_mul_ps(pixel, oonorm);
-  }
-  else if(ix >= 0 && iy >= 0 && ix < width && iy < height)
-  {
-    // At least a valid coordinate
-
-    // Point to the upper left pixel index wise
-    iy -= itor->width - 1;
-    ix -= itor->width - 1;
-
-    static const enum border_mode bordermode = INTERPOLATION_BORDER_MODE;
-    assert(bordermode != BORDER_CLAMP); // XXX in clamp mode, norms would be wrong
-
-    int xtap_first;
-    int xtap_last;
-    prepare_tap_boundaries(&xtap_first, &xtap_last, bordermode, 2 * itor->width, ix, width);
-
-    int ytap_first;
-    int ytap_last;
-    prepare_tap_boundaries(&ytap_first, &ytap_last, bordermode, 2 * itor->width, iy, height);
-
-    // Apply the kernel
-    __m128 pixel = _mm_setzero_ps();
-    for(int i = ytap_first; i < ytap_last; i++)
-    {
-      int clip_y = clip(iy + i, 0, height - 1, bordermode);
-      __m128 h = _mm_setzero_ps();
-      for(int j = xtap_first; j < xtap_last; j++)
-      {
-        const int clip_x = clip(ix + j, 0, width - 1, bordermode);
-        const float *ipixel = in + clip_y * linestride + clip_x * 4;
-        h = _mm_add_ps(h, _mm_mul_ps(vkernelh[j], *(__m128 *)ipixel));
-      }
-      pixel = _mm_add_ps(pixel, _mm_mul_ps(vkernelv[i], h));
-    }
-
-    *(__m128 *)out = _mm_mul_ps(pixel, oonorm);
-  }
-  else
-  {
-    *(__m128 *)out = _mm_set_ps1(0.0f);
-  }
-}
-#endif
-
-void dt_interpolation_compute_pixel4c(const struct dt_interpolation *itor, const float *in, float *out,
-                                      const float x, const float y, const int width, const int height,
+void dt_interpolation_compute_pixel4c(const struct dt_interpolation *itor,
+                                      const float *in,
+                                      float *out,
+                                      const float x,
+                                      const float y,
+                                      const int width,
+                                      const int height,
                                       const int linestride)
 {
-  if(darktable.codepath.OPENMP_SIMD)
-    return dt_interpolation_compute_pixel4c_plain(itor, in, out, x, y, width, height, linestride);
-#if defined(__SSE2__)
-  else if(darktable.codepath.SSE2)
-    return dt_interpolation_compute_pixel4c_sse(itor, in, out, x, y, width, height, linestride);
-#endif
-  else
-    dt_unreachable_codepath();
-}
-
-static void dt_interpolation_compute_pixel1c_plain(const struct dt_interpolation *itor, const float *in,
-                                                   float *out, const float x, const float y, const int width,
-                                                   const int height, const int linestride)
-{
   assert(itor->width < (MAX_HALF_FILTER_WIDTH + 1));
 
   // Quite a bit of space for kernels
-  float kernelh[MAX_KERNEL_REQ] __attribute__((aligned(SSE_ALIGNMENT)));
-  float kernelv[MAX_KERNEL_REQ] __attribute__((aligned(SSE_ALIGNMENT)));
+  float DT_ALIGNED_ARRAY kernelh[MAX_KERNEL_REQ];
+  float DT_ALIGNED_ARRAY kernelv[MAX_KERNEL_REQ];
 
   // Compute both horizontal and vertical kernels
-  float normh;
-  float normv;
-  compute_upsampling_kernel(itor, kernelh, &normh, NULL, x);
-  compute_upsampling_kernel(itor, kernelv, &normv, NULL, y);
+  float normh = _compute_upsampling_kernel(itor, kernelh, NULL, x);
+  float normv = _compute_upsampling_kernel(itor, kernelv, NULL, y);
 
   // Precompute the inverse of the filter norm for later use
   const float oonorm = (1.f / (normh * normv));
@@ -1018,29 +609,39 @@ static void dt_interpolation_compute_pixel1c_plain(const struct dt_interpolation
   int ix = (int)x;
   int iy = (int)y;
 
-  if(ix >= (itor->width - 1) && iy >= (itor->width - 1) && ix < (width - itor->width)
+  if(ix >= (itor->width - 1)
+    && iy >= (itor->width - 1)
+    && ix < (width - itor->width)
     && iy < (height - itor->width))
   {
     // Inside image boundary case
 
     // Go to top left pixel
-    in = (float *)in + linestride * iy + ix;
-    in = in - (itor->width - 1) * (1 + linestride);
+    in = (float *)in + linestride * iy + ix * 4;
+    in = in - (itor->width - 1) * (4 + linestride);
+
+    const size_t itor_width = 2 * itor->width;
 
     // Apply the kernel
-    float pixel = 0.0f;
-    for(int i = 0; i < 2 * itor->width; i++)
+    dt_aligned_pixel_t pixel = { 0.0f, 0.0f, 0.0f, 0.0f };
+    for(size_t i = 0; i < itor_width; i++)
     {
-      float h = 0.0f;
-      for(int j = 0; j < 2 * itor->width; j++)
+      dt_aligned_pixel_t h = { 0.0f, 0.0f, 0.0f, 0.0f };
+      for(size_t j = 0; j < itor_width; j++)
       {
-        h += kernelh[j] * in[j];
+        const float kern = kernelh[j];
+        dt_aligned_pixel_t inpx;
+        copy_pixel(inpx, in + 4*j);
+        for_each_channel(c)
+          h[c] = h[c] + kern * inpx[c];
       }
-      pixel += kernelv[i] * h;
+      for_each_channel(c)
+        pixel[c] += kernelv[i] * h[c];
       in += linestride;
     }
 
-    *out = oonorm * pixel;
+    for_each_channel(c,aligned(out))
+      out[c] = fmaxf(0.0f, oonorm * pixel[c]);
   }
   else if(ix >= 0 && iy >= 0 && ix < width && iy < height)
   {
@@ -1055,40 +656,43 @@ static void dt_interpolation_compute_pixel1c_plain(const struct dt_interpolation
 
     int xtap_first;
     int xtap_last;
-    prepare_tap_boundaries(&xtap_first, &xtap_last, bordermode, 2 * itor->width, ix, width);
+    _prepare_tap_boundaries(&xtap_first, &xtap_last,
+                           bordermode, 2 * itor->width, ix, width);
 
     int ytap_first;
     int ytap_last;
-    prepare_tap_boundaries(&ytap_first, &ytap_last, bordermode, 2 * itor->width, iy, height);
+    _prepare_tap_boundaries(&ytap_first, &ytap_last,
+                           bordermode, 2 * itor->width, iy, height);
 
     // Apply the kernel
-    float pixel = 0.0f;
-    for(int i = ytap_first; i < ytap_last; i++)
+    dt_aligned_pixel_t pixel = { 0.0f, 0.0f, 0.0f, 0.0f };
+    for(ssize_t i = ytap_first; i < ytap_last; i++)
     {
-      const int clip_y = clip(iy + i, 0, height - 1, bordermode);
-      float h = 0.0f;
-      for(int j = xtap_first; j < xtap_last; j++)
+      const ssize_t clip_y = _clip(iy + i, 0, height - 1, bordermode);
+      dt_aligned_pixel_t h = { 0.0f, 0.0f, 0.0f, 0.0f };
+      const float *ipixel = in + clip_y * linestride;
+      for(ssize_t j = xtap_first; j < xtap_last; j++)
       {
-        const int clip_x = clip(ix + j, 0, width - 1, bordermode);
-        const float *ipixel = in + clip_y * linestride + clip_x;
-        h += kernelh[j] * *ipixel;
+        const ssize_t clip_x = _clip(ix + j, 0, width - 1, bordermode);
+        dt_aligned_pixel_t inpx;
+        copy_pixel(inpx, ipixel + 4 * clip_x);
+        const float kern = kernelh[j];
+        for_each_channel(c)
+          h[c] += kern * inpx[c];
       }
-      pixel += kernelv[i] * h;
+      for_each_channel(c)
+        pixel[c] += kernelv[i] * h[c];
     }
 
-    *out = oonorm * pixel;
+    for_each_channel(c,aligned(out))
+      out[c] = fmaxf(0.0f, oonorm * pixel[c]);
   }
   else
   {
-    *out = 0.0f;
+    // data for *out has no valid *in location so just set to zero.
+    for_each_channel(c,aligned(out))
+      out[c] = 0.0f;
   }
-}
-
-void dt_interpolation_compute_pixel1c(const struct dt_interpolation *itor, const float *in, float *out,
-                                      const float x, const float y, const int width, const int height,
-                                      const int linestride)
-{
-  return dt_interpolation_compute_pixel1c_plain(itor, in, out, x, y, width, height, linestride);
 }
 
 /* --------------------------------------------------------------------------
@@ -1102,8 +706,12 @@ const struct dt_interpolation *dt_interpolation_new(enum dt_interpolation_type t
   if(type == DT_INTERPOLATION_USERPREF)
   {
     // Find user preferred interpolation method
-    const char *uipref = dt_conf_get_string_const("plugins/lighttable/export/pixel_interpolator");
-    for(int i = DT_INTERPOLATION_FIRST; uipref && i < DT_INTERPOLATION_LAST; i++)
+    const char *uipref =
+      dt_conf_get_string_const("plugins/lighttable/export/pixel_interpolator");
+
+    for(int i = DT_INTERPOLATION_FIRST;
+        uipref && i < DT_INTERPOLATION_LAST;
+        i++)
     {
       if(!strcmp(uipref, dt_interpolator[i].name))
       {
@@ -1120,8 +728,11 @@ const struct dt_interpolation *dt_interpolation_new(enum dt_interpolation_type t
   else if(type == DT_INTERPOLATION_USERPREF_WARP)
   {
     // Find user preferred interpolation method
-    const char *uipref = dt_conf_get_string_const("plugins/lighttable/export/pixel_interpolator_warp");
-    for(int i = DT_INTERPOLATION_FIRST; uipref && i < DT_INTERPOLATION_LAST; i++)
+    const char *uipref =
+      dt_conf_get_string_const("plugins/lighttable/export/pixel_interpolator_warp");
+    for(int i = DT_INTERPOLATION_FIRST;
+        uipref && i < DT_INTERPOLATION_LAST;
+        i++)
     {
       if(!strcmp(uipref, dt_interpolator[i].name))
       {
@@ -1193,13 +804,21 @@ const struct dt_interpolation *dt_interpolation_new(enum dt_interpolation_type t
  * @param pkernel [out] Array of filter kernel taps
  * @param pindex [out] Array of sample indexes to be used for applying each kernel tap
  * arrays of information
- * @param pmeta [out] Array of int triplets (length, kernel, index) telling where to start for an arbitrary
+ * @param pmeta [out] Array of int triplets (length, kernel, index) telling where to
+ *        start for an arbitrary
  * out position meta[3*out]
- * @return 0 for success, !0 for failure
+ * @return FALSE for success, TRUE for failure
  */
-static int prepare_resampling_plan(const struct dt_interpolation *itor, int in, const int in_x0, int out,
-                                   const int out_x0, float scale, int **plength, float **pkernel,
-                                   int **pindex, int **pmeta)
+static gboolean _prepare_resampling_plan(const struct dt_interpolation *itor,
+                                         const int in,
+                                         const int in_x0,
+                                         const int out,
+                                         const int out_x0,
+                                         const float scale,
+                                         int **plength,
+                                         float **pkernel,
+                                         int **pindex,
+                                         int **pmeta)
 {
   // Safe return values
   *plength = NULL;
@@ -1213,7 +832,7 @@ static int prepare_resampling_plan(const struct dt_interpolation *itor, int in, 
   if(scale == 1.f)
   {
     // No resampling required
-    return 0;
+    return FALSE;
   }
 
   // Compute common upsampling/downsampling memory requirements
@@ -1232,20 +851,16 @@ static int prepare_resampling_plan(const struct dt_interpolation *itor, int in, 
   int nlengths = out;
   const int nindex = maxtapsapixel * out;
   const int nkernel = maxtapsapixel * out;
-  const size_t lengthreq = increase_for_alignment(nlengths * sizeof(int), SSE_ALIGNMENT);
-  const size_t indexreq = increase_for_alignment(nindex * sizeof(int), SSE_ALIGNMENT);
-  const size_t kernelreq = increase_for_alignment(nkernel * sizeof(float), SSE_ALIGNMENT);
-  const size_t scratchreq = maxtapsapixel * sizeof(float) + 4 * sizeof(float);
+  const size_t lengthreq = dt_round_size(nlengths * sizeof(int), DT_CACHELINE_BYTES);
+  const size_t indexreq = dt_round_size(nindex * sizeof(int), DT_CACHELINE_BYTES);
+  const size_t kernelreq = dt_round_size(nkernel * sizeof(float), DT_CACHELINE_BYTES);
+  const size_t scratchreq = dt_round_size(maxtapsapixel * sizeof(float) + 4 * sizeof(float), DT_CACHELINE_BYTES);
   // NB: because sse versions compute four taps a time
-  const size_t metareq = pmeta ? 3 * sizeof(int) * out : 0;
+  const size_t metareq = dt_round_size(pmeta ? 4 * sizeof(int) * out : 0, DT_CACHELINE_BYTES);
 
-  void *blob = NULL;
   const size_t totalreq = kernelreq + lengthreq + indexreq + scratchreq + metareq;
-  blob = dt_alloc_align(SSE_ALIGNMENT, totalreq);
-  if(!blob)
-  {
-    return 1;
-  }
+  void *blob = dt_alloc_align(DT_CACHELINE_BYTES, totalreq);
+  if(!blob) return TRUE;
 
   int *lengths = (int *)blob;
   blob = (char *)blob + lengthreq;
@@ -1285,13 +900,13 @@ static int prepare_resampling_plan(const struct dt_interpolation *itor, int in, 
 
       // Compute the filter kernel at that position
       int first;
-      compute_upsampling_kernel(itor, scratchpad, NULL, &first, fx);
+      (void)_compute_upsampling_kernel(itor, scratchpad, &first, fx);
 
       /* Check lower and higher bound pixel index and skip as many pixels as
        * necessary to fall into range */
       int tap_first;
       int tap_last;
-      prepare_tap_boundaries(&tap_first, &tap_last, bordermode, 2 * itor->width, first, in);
+      _prepare_tap_boundaries(&tap_first, &tap_last, bordermode, 2 * itor->width, first, in);
 
       // Track number of taps that will be used
       lengths[lidx++] = tap_last - tap_first;
@@ -1312,7 +927,7 @@ static int prepare_resampling_plan(const struct dt_interpolation *itor, int in, 
       for(int tap = tap_first; tap < tap_last; tap++)
       {
         kernel[kidx++] = scratchpad[tap] * norm;
-        index[iidx++] = clip(first++, 0, in - 1, bordermode);
+        index[iidx++] = _clip(first++, 0, in - 1, bordermode);
       }
     }
   }
@@ -1334,13 +949,13 @@ static int prepare_resampling_plan(const struct dt_interpolation *itor, int in, 
       // Compute downsampling kernel centered on output position
       int taps;
       int first;
-      compute_downsampling_kernel(itor, &taps, &first, scratchpad, NULL, scale, out_x0 + x);
+      _compute_downsampling_kernel(itor, &taps, &first, scratchpad, NULL, scale, out_x0 + x);
 
       /* Check lower and higher bound pixel index and skip as many pixels as
        * necessary to fall into range */
       int tap_first;
       int tap_last;
-      prepare_tap_boundaries(&tap_first, &tap_last, bordermode, taps, first, in);
+      _prepare_tap_boundaries(&tap_first, &tap_last, bordermode, taps, first, in);
 
       // Track number of taps that will be used
       lengths[lidx++] = tap_last - tap_first;
@@ -1361,7 +976,7 @@ static int prepare_resampling_plan(const struct dt_interpolation *itor, int in, 
       for(int tap = tap_first; tap < tap_last; tap++)
       {
         kernel[kidx++] = scratchpad[tap] * norm;
-        index[iidx++] = clip(first++, 0, in - 1, bordermode);
+        index[iidx++] = _clip(first++, 0, in - 1, bordermode);
       }
     }
   }
@@ -1375,13 +990,14 @@ static int prepare_resampling_plan(const struct dt_interpolation *itor, int in, 
     *pmeta = meta;
   }
 
-  return 0;
+  return FALSE;
 }
 
-static void dt_interpolation_resample_plain(const struct dt_interpolation *itor, float *out,
-                                            const dt_iop_roi_t *const roi_out, const int32_t out_stride,
-                                            const float *const in, const dt_iop_roi_t *const roi_in,
-                                            const int32_t in_stride)
+static void _interpolation_resample_plain(const struct dt_interpolation *itor,
+                                          float *out,
+                                          const dt_iop_roi_t *const roi_out,
+                                          const float *const in,
+                                          const dt_iop_roi_t *const roi_in)
 {
   int *hindex = NULL;
   int *hlength = NULL;
@@ -1391,75 +1007,51 @@ static void dt_interpolation_resample_plain(const struct dt_interpolation *itor,
   float *vkernel = NULL;
   int *vmeta = NULL;
 
-  const int32_t in_stride_floats = in_stride / sizeof(float);
-  const int32_t out_stride_floats = out_stride / sizeof(float);
-  int r;
-
-  debug_info("resampling %p (%dx%d@%dx%d scale %f) -> %p (%dx%d@%dx%d scale %f)\n", in, roi_in->width,
-             roi_in->height, roi_in->x, roi_in->y, roi_in->scale, out, roi_out->width, roi_out->height,
-             roi_out->x, roi_out->y, roi_out->scale);
+  const int32_t in_stride_floats = roi_in->width * 4;
+  const int32_t out_stride_floats = roi_out->width * 4;
 
   // Fast code path for 1:1 copy, only cropping area can change
   if(roi_out->scale == 1.f)
   {
     const int x0 = roi_out->x * 4 * sizeof(float);
-#if DEBUG_RESAMPLING_TIMING
-    int64_t ts_resampling = getts();
-#endif
+
 #ifdef _OPENMP
-#pragma omp parallel for default(none) \
-    dt_omp_firstprivate(in, in_stride, out_stride, roi_out, x0) \
-    shared(out)
+#pragma omp parallel for default(none) schedule(static) \
+   dt_omp_firstprivate(in, out, x0, roi_out, out_stride_floats, in_stride_floats)
 #endif
     for(int y = 0; y < roi_out->height; y++)
     {
-      memcpy((char *)out + (size_t)out_stride * y,
-             (char *)in + (size_t)in_stride * (y + roi_out->y) + x0,
-             out_stride);
+      memcpy((char *)out + (size_t)out_stride_floats * sizeof(float) * y,
+             (char *)in + (size_t)in_stride_floats * sizeof(float) * (y + roi_out->y) + x0,
+             out_stride_floats * sizeof(float));
     }
-#if DEBUG_RESAMPLING_TIMING
-    ts_resampling = getts() - ts_resampling;
-    fprintf(stderr, "resampling %p plan:0us resampling:%" PRId64 "us\n", in, ts_resampling);
-#endif
+
     // All done, so easy case
     return;
   }
 
-// Generic non 1:1 case... much more complicated :D
-#if DEBUG_RESAMPLING_TIMING
-  int64_t ts_plan = getts();
-#endif
+  // Generic non 1:1 case... much more complicated :D
 
   // Prepare resampling plans once and for all
-  r = prepare_resampling_plan(itor, roi_in->width, roi_in->x, roi_out->width, roi_out->x, roi_out->scale,
-                              &hlength, &hkernel, &hindex, NULL);
-  if(r)
-  {
+  if(_prepare_resampling_plan(itor, roi_in->width, roi_in->x,
+                              roi_out->width, roi_out->x, roi_out->scale,
+                              &hlength, &hkernel, &hindex, NULL))
     goto exit;
-  }
 
-  r = prepare_resampling_plan(itor, roi_in->height, roi_in->y, roi_out->height, roi_out->y, roi_out->scale,
-                              &vlength, &vkernel, &vindex, &vmeta);
-  if(r)
-  {
+  if(_prepare_resampling_plan(itor, roi_in->height, roi_in->y,
+                              roi_out->height, roi_out->y, roi_out->scale,
+                              &vlength, &vkernel, &vindex, &vmeta))
     goto exit;
-  }
 
-#if DEBUG_RESAMPLING_TIMING
-  ts_plan = getts() - ts_plan;
-#endif
+  const size_t height = roi_out->height;
+  const size_t width = roi_out->width;
 
-#if DEBUG_RESAMPLING_TIMING
-  int64_t ts_resampling = getts();
-#endif
-
-// Process each output line
+  // Process each output line
 #ifdef _OPENMP
-#pragma omp parallel for default(none) \
-  dt_omp_firstprivate(in, in_stride_floats, out_stride_floats, roi_out) \
-  shared(out, hindex, hlength, hkernel, vindex, vlength, vkernel, vmeta)
+#pragma omp parallel for default(none) schedule(static) \
+  dt_omp_firstprivate(vmeta, vlength, hlength, vindex, in_stride_floats, height, hindex, hkernel, vkernel, in, out, out_stride_floats, width)
 #endif
-  for(int oy = 0; oy < roi_out->height; oy++)
+  for(size_t oy = 0; oy < height; oy++)
   {
     // Initialize column resampling indexes
     int vlidx = vmeta[3 * oy + 0]; // V(ertical) L(ength) I(n)d(e)x
@@ -1469,37 +1061,35 @@ static void dt_interpolation_resample_plain(const struct dt_interpolation *itor,
     // Initialize row resampling indexes
     int hlidx = 0; // H(orizontal) L(ength) I(n)d(e)x
     int hkidx = 0; // H(orizontal) K(ernel) I(n)d(e)x
-    int hiidx = 0; // H(orizontal) I(ndex) I(n)d(e)x
 
     // Number of lines contributing to the output line
     int vl = vlength[vlidx++]; // V(ertical) L(ength)
 
     // Process each output column
-    for(int ox = 0; ox < roi_out->width; ox++)
+    for(size_t ox = 0; ox < width; ox++)
     {
-      debug_extra("output %p [% 4d % 4d]\n", out, ox, oy);
-
       // This will hold the resulting pixel
       dt_aligned_pixel_t vs = { 0.0f, 0.0f, 0.0f, 0.0f };
 
       // Number of horizontal samples contributing to the output
       int hl = hlength[hlidx++]; // H(orizontal) L(ength)
 
-      for(int iy = 0; iy < vl; iy++)
+      for(size_t iy = 0; iy < vl; iy++)
       {
         // This is our input line
         size_t baseidx_vindex = (size_t)vindex[viidx++] * in_stride_floats;
 
         dt_aligned_pixel_t vhs = { 0.0f, 0.0f, 0.0f, 0.0f };
 
-        for(int ix = 0; ix < hl; ix++)
+        for(size_t ix = 0; ix < hl; ix++)
         {
           // Apply the precomputed filter kernel
-          const size_t baseidx = baseidx_vindex + (size_t)hindex[hiidx++] * 4;
+          const size_t baseidx = baseidx_vindex + (size_t)hindex[hkidx] * 4;
           const float htap = hkernel[hkidx++];
-          // Convince gcc 10 to vectorize
-          dt_aligned_pixel_t tmp = { in[baseidx], in[baseidx+1], in[baseidx+2], in[baseidx+3] };
-          for_each_channel(c, aligned(tmp,vhs:16)) vhs[c] += tmp[c] * htap;
+          dt_aligned_pixel_t tmp;
+          copy_pixel(tmp, in + baseidx);
+          for_each_channel(c, aligned(tmp,vhs:16))
+            vhs[c] += tmp[c] * htap;
         }
 
         // Accumulate contribution from this line
@@ -1508,7 +1098,6 @@ static void dt_interpolation_resample_plain(const struct dt_interpolation *itor,
 
         // Reset horizontal resampling context
         hkidx -= hl;
-        hiidx -= hl;
       }
 
       // Output pixel is ready
@@ -1516,22 +1105,20 @@ static void dt_interpolation_resample_plain(const struct dt_interpolation *itor,
 
       // Clip negative RGB that may be produced by Lanczos undershooting
       // Negative RGB are invalid values no matter the RGB space (light is positive)
-      for_each_channel(c, aligned(vs:16)) out[baseidx + c] = fmaxf(vs[c], 0.f);
+      dt_aligned_pixel_t pixel;
+      for_each_channel(c, aligned(vs:16))
+        pixel[c] = MAX(vs[c], 0.f);
+      copy_pixel_nontemporal(out + baseidx, pixel);
 
       // Reset vertical resampling context
       viidx -= vl;
       vkidx -= vl;
 
       // Progress in horizontal context
-      hiidx += hl;
       hkidx += hl;
     }
   }
-
-#if DEBUG_RESAMPLING_TIMING
-  ts_resampling = getts() - ts_resampling;
-  fprintf(stderr, "resampling %p plan:%" PRId64 "us resampling:%" PRId64 "us\n", in, ts_plan, ts_resampling);
-#endif
+  dt_omploop_sfence();
 
 exit:
   /* Free the resampling plans. It's nasty to optimize allocs like that, but
@@ -1540,205 +1127,35 @@ exit:
   dt_free_align(hlength);
   dt_free_align(vlength);
 }
-
-#if defined(__SSE2__)
-static void dt_interpolation_resample_sse(const struct dt_interpolation *itor, float *out,
-                                          const dt_iop_roi_t *const roi_out, const int32_t out_stride,
-                                          const float *const in, const dt_iop_roi_t *const roi_in,
-                                          const int32_t in_stride)
-{
-  int *hindex = NULL;
-  int *hlength = NULL;
-  float *hkernel = NULL;
-  int *vindex = NULL;
-  int *vlength = NULL;
-  float *vkernel = NULL;
-  int *vmeta = NULL;
-
-  int r;
-
-  debug_info("resampling %p (%dx%d@%dx%d scale %f) -> %p (%dx%d@%dx%d scale %f)\n", in, roi_in->width,
-             roi_in->height, roi_in->x, roi_in->y, roi_in->scale, out, roi_out->width, roi_out->height,
-             roi_out->x, roi_out->y, roi_out->scale);
-
-  // Fast code path for 1:1 copy, only cropping area can change
-  if(roi_out->scale == 1.f)
-  {
-    const int x0 = roi_out->x * 4 * sizeof(float);
-#if DEBUG_RESAMPLING_TIMING
-    int64_t ts_resampling = getts();
-#endif
-#ifdef _OPENMP
-#pragma omp parallel for default(none) \
-    dt_omp_firstprivate(in, in_stride, out_stride, roi_out, x0) \
-    shared(out)
-#endif
-    for(int y = 0; y < roi_out->height; y++)
-    {
-      float *i = (float *)((char *)in + (size_t)in_stride * (y + roi_out->y) + x0);
-      float *o = (float *)((char *)out + (size_t)out_stride * y);
-      memcpy(o, i, out_stride);
-    }
-#if DEBUG_RESAMPLING_TIMING
-    ts_resampling = getts() - ts_resampling;
-    fprintf(stderr, "resampling %p plan:0us resampling:%" PRId64 "us\n", in, ts_resampling);
-#endif
-    // All done, so easy case
-    return;
-  }
-
-// Generic non 1:1 case... much more complicated :D
-#if DEBUG_RESAMPLING_TIMING
-  int64_t ts_plan = getts();
-#endif
-
-  // Prepare resampling plans once and for all
-  r = prepare_resampling_plan(itor, roi_in->width, roi_in->x, roi_out->width, roi_out->x, roi_out->scale,
-                              &hlength, &hkernel, &hindex, NULL);
-  if(r)
-  {
-    goto exit;
-  }
-
-  r = prepare_resampling_plan(itor, roi_in->height, roi_in->y, roi_out->height, roi_out->y, roi_out->scale,
-                              &vlength, &vkernel, &vindex, &vmeta);
-  if(r)
-  {
-    goto exit;
-  }
-
-#if DEBUG_RESAMPLING_TIMING
-  ts_plan = getts() - ts_plan;
-#endif
-
-#if DEBUG_RESAMPLING_TIMING
-  int64_t ts_resampling = getts();
-#endif
-
-// Process each output line
-#ifdef _OPENMP
-#pragma omp parallel for default(none) \
-  dt_omp_firstprivate(in, in_stride, out_stride, roi_out) \
-  shared(out, hindex, hlength, hkernel, vindex, vlength, vkernel, vmeta)
-#endif
-  for(int oy = 0; oy < roi_out->height; oy++)
-  {
-    // Initialize column resampling indexes
-    int vlidx = vmeta[3 * oy + 0]; // V(ertical) L(ength) I(n)d(e)x
-    int vkidx = vmeta[3 * oy + 1]; // V(ertical) K(ernel) I(n)d(e)x
-    int viidx = vmeta[3 * oy + 2]; // V(ertical) I(ndex) I(n)d(e)x
-
-    // Initialize row resampling indexes
-    int hlidx = 0; // H(orizontal) L(ength) I(n)d(e)x
-    int hkidx = 0; // H(orizontal) K(ernel) I(n)d(e)x
-    int hiidx = 0; // H(orizontal) I(ndex) I(n)d(e)x
-
-    // Number of lines contributing to the output line
-    int vl = vlength[vlidx++]; // V(ertical) L(ength)
-
-    // Process each output column
-    for(int ox = 0; ox < roi_out->width; ox++)
-    {
-      debug_extra("output %p [% 4d % 4d]\n", out, ox, oy);
-
-      // This will hold the resulting pixel
-      __m128 vs = _mm_setzero_ps();
-
-      // Number of horizontal samples contributing to the output
-      const int hl = hlength[hlidx++]; // H(orizontal) L(ength)
-
-      for(int iy = 0; iy < vl; iy++)
-      {
-        // This is our input line
-        const float *i = (float *)((char *)in + (size_t)in_stride * vindex[viidx++]);
-
-        __m128 vhs = _mm_setzero_ps();
-
-        for(int ix = 0; ix < hl; ix++)
-        {
-          // Apply the precomputed filter kernel
-          const size_t baseidx = (size_t)hindex[hiidx++] * 4;
-          const float htap = hkernel[hkidx++];
-          const __m128 vhtap = _mm_set_ps1(htap);
-          vhs = _mm_add_ps(vhs, _mm_mul_ps(*(__m128 *)&i[baseidx], vhtap));
-        }
-
-        // Accumulate contribution from this line
-        const float vtap = vkernel[vkidx++];
-        const __m128 vvtap = _mm_set_ps1(vtap);
-        vs = _mm_add_ps(vs, _mm_mul_ps(vhs, vvtap));
-
-        // Reset horizontal resampling context
-        hkidx -= hl;
-        hiidx -= hl;
-      }
-
-      // Output pixel is ready
-      float *o = (float *)((char *)out + (size_t)oy * out_stride + (size_t)ox * 4 * sizeof(float));
-
-      // Clip negative RGB that may be produced by Lanczos undershooting
-      // Negative RGB are invalid values no matter the RGB space (light is positive)
-      vs = _mm_max_ps(vs, _mm_setzero_ps());
-      _mm_stream_ps(o, vs);
-
-      // Reset vertical resampling context
-      viidx -= vl;
-      vkidx -= vl;
-
-      // Progress in horizontal context
-      hiidx += hl;
-      hkidx += hl;
-    }
-  }
-
-  _mm_sfence();
-
-#if DEBUG_RESAMPLING_TIMING
-  ts_resampling = getts() - ts_resampling;
-  fprintf(stderr, "resampling %p plan:%" PRId64 "us resampling:%" PRId64 "us\n", in, ts_plan, ts_resampling);
-#endif
-
-exit:
-  /* Free the resampling plans. It's nasty to optimize allocs like that, but
-   * it simplifies the code :-D. The length array is in fact the only memory
-   * allocated. */
-  dt_free_align(hlength);
-  dt_free_align(vlength);
-}
-#endif
 
 /** Applies resampling (re-scaling) on *full* input and output buffers.
  *  roi_in and roi_out define the part of the buffers that is affected.
  */
-void dt_interpolation_resample(const struct dt_interpolation *itor, float *out,
-                               const dt_iop_roi_t *const roi_out, const int32_t out_stride,
-                               const float *const in, const dt_iop_roi_t *const roi_in,
-                               const int32_t in_stride)
+void dt_interpolation_resample(const struct dt_interpolation *itor,
+                               float *out,
+                               const dt_iop_roi_t *const roi_out,
+                               const float *const in,
+                               const dt_iop_roi_t *const roi_in)
 {
   if(out == NULL)
   {
-    dt_print(DT_DEBUG_MEMORY, "[dt_interpolation_resample] no valid output buffer\n");
+    dt_print(DT_DEBUG_DEV, "[dt_interpolation_resample] no valid output buffer\n");
     return;
   }
 
-  if(darktable.codepath.OPENMP_SIMD)
-    return dt_interpolation_resample_plain(itor, out, roi_out, out_stride, in, roi_in, in_stride);
-#if defined(__SSE2__)
-  else if(darktable.codepath.SSE2)
-    return dt_interpolation_resample_sse(itor, out, roi_out, out_stride, in, roi_in, in_stride);
-#endif
-  else
-    dt_unreachable_codepath();
+  return _interpolation_resample_plain(itor, out, roi_out, in, roi_in);
 }
 
-/** Applies resampling (re-scaling) on a specific region-of-interest of an image. The input
- *  and output buffers hold exactly those roi's. roi_in and roi_out define the relative
- *  positions of the roi's within the full input and output image, respectively.
+/** Applies resampling (re-scaling) on a specific region-of-interest
+ *  of an image. The input and output buffers hold exactly those
+ *  roi's. roi_in and roi_out define the relative positions of the
+ *  roi's within the full input and output image, respectively.
  */
-void dt_interpolation_resample_roi(const struct dt_interpolation *itor, float *out,
-                                   const dt_iop_roi_t *const roi_out, const int32_t out_stride,
-                                   const float *const in, const dt_iop_roi_t *const roi_in,
-                                   const int32_t in_stride)
+void dt_interpolation_resample_roi(const struct dt_interpolation *itor,
+                                   float *out,
+                                   const dt_iop_roi_t *const roi_out,
+                                   const float *const in,
+                                   const dt_iop_roi_t *const roi_in)
 {
   dt_iop_roi_t oroi = *roi_out;
   oroi.x = oroi.y = 0;
@@ -1746,7 +1163,7 @@ void dt_interpolation_resample_roi(const struct dt_interpolation *itor, float *o
   dt_iop_roi_t iroi = *roi_in;
   iroi.x = iroi.y = 0;
 
-  dt_interpolation_resample(itor, out, &oroi, out_stride, in, &iroi, in_stride);
+  dt_interpolation_resample(itor, out, &oroi, in, &iroi);
 }
 
 #ifdef HAVE_OPENCL
@@ -1756,7 +1173,8 @@ dt_interpolation_cl_global_t *dt_interpolation_init_cl_global()
       = (dt_interpolation_cl_global_t *)malloc(sizeof(dt_interpolation_cl_global_t));
 
   const int program = 2; // basic.cl, from programs.conf
-  g->kernel_interpolation_resample = dt_opencl_create_kernel(program, "interpolation_resample");
+  g->kernel_interpolation_resample =
+    dt_opencl_create_kernel(program, "interpolation_resample");
   return g;
 }
 
@@ -1783,8 +1201,11 @@ static uint32_t roundToNextPowerOfTwo(uint32_t x)
 /** Applies resampling (re-scaling) on *full* input and output buffers.
  *  roi_in and roi_out define the part of the buffers that is affected.
  */
-int dt_interpolation_resample_cl(const struct dt_interpolation *itor, int devid, cl_mem dev_out,
-                                 const dt_iop_roi_t *const roi_out, cl_mem dev_in,
+int dt_interpolation_resample_cl(const struct dt_interpolation *itor,
+                                 const int devid,
+                                 cl_mem dev_out,
+                                 const dt_iop_roi_t *const roi_out,
+                                 cl_mem dev_in,
                                  const dt_iop_roi_t *const roi_in)
 {
   int *hindex = NULL;
@@ -1796,8 +1217,7 @@ int dt_interpolation_resample_cl(const struct dt_interpolation *itor, int devid,
   float *vkernel = NULL;
   int *vmeta = NULL;
 
-  int r;
-  cl_int err = -999;
+  cl_int err = DT_OPENCL_DEFAULT_ERROR;
 
   cl_mem dev_hindex = NULL;
   cl_mem dev_hlength = NULL;
@@ -1808,16 +1228,9 @@ int dt_interpolation_resample_cl(const struct dt_interpolation *itor, int devid,
   cl_mem dev_vkernel = NULL;
   cl_mem dev_vmeta = NULL;
 
-  debug_info("resampling_cl %p (%dx%d@%dx%d scale %f) -> %p (%dx%d@%dx%d scale %f)\n", (void *)dev_in,
-             roi_in->width, roi_in->height, roi_in->x, roi_in->y, roi_in->scale, (void *)dev_out,
-             roi_out->width, roi_out->height, roi_out->x, roi_out->y, roi_out->scale);
-
   // Fast code path for 1:1 copy, only cropping area can change
   if(roi_out->scale == 1.f)
   {
-#if DEBUG_RESAMPLING_TIMING
-    int64_t ts_resampling = getts();
-#endif
     size_t iorigin[] = { roi_out->x, roi_out->y, 0 };
     size_t oorigin[] = { 0, 0, 0 };
     size_t region[] = { roi_out->width, roi_out->height, 1 };
@@ -1826,45 +1239,26 @@ int dt_interpolation_resample_cl(const struct dt_interpolation *itor, int devid,
     err = dt_opencl_enqueue_copy_image(devid, dev_in, dev_out, iorigin, oorigin, region);
     if(err != CL_SUCCESS) goto error;
 
-#if DEBUG_RESAMPLING_TIMING
-    ts_resampling = getts() - ts_resampling;
-    fprintf(stderr, "resampling_cl %p plan:0us resampling:%" PRId64 "us\n", (void *)dev_in, ts_resampling);
-#endif
     // All done, so easy case
     return CL_SUCCESS;
   }
 
-// Generic non 1:1 case... much more complicated :D
-#if DEBUG_RESAMPLING_TIMING
-  int64_t ts_plan = getts();
-#endif
+  // Generic non 1:1 case... much more complicated :D
 
   // Prepare resampling plans once and for all
-  r = prepare_resampling_plan(itor, roi_in->width, roi_in->x, roi_out->width, roi_out->x, roi_out->scale,
-                              &hlength, &hkernel, &hindex, &hmeta);
-  if(r)
-  {
+  if(_prepare_resampling_plan(itor, roi_in->width, roi_in->x,
+                              roi_out->width, roi_out->x, roi_out->scale,
+                              &hlength, &hkernel, &hindex, &hmeta))
     goto error;
-  }
 
-  r = prepare_resampling_plan(itor, roi_in->height, roi_in->y, roi_out->height, roi_out->y, roi_out->scale,
-                              &vlength, &vkernel, &vindex, &vmeta);
-  if(r)
-  {
+  if(_prepare_resampling_plan(itor, roi_in->height, roi_in->y,
+                              roi_out->height, roi_out->y, roi_out->scale,
+                              &vlength, &vkernel, &vindex, &vmeta))
     goto error;
-  }
 
   int hmaxtaps = -1, vmaxtaps = -1;
   for(int k = 0; k < roi_out->width; k++) hmaxtaps = MAX(hmaxtaps, hlength[k]);
   for(int k = 0; k < roi_out->height; k++) vmaxtaps = MAX(vmaxtaps, vlength[k]);
-
-#if DEBUG_RESAMPLING_TIMING
-  ts_plan = getts() - ts_plan;
-#endif
-
-#if DEBUG_RESAMPLING_TIMING
-  int64_t ts_resampling = getts();
-#endif
 
   // strategy: process image column-wise (local[0] = 1). For each row generate
   // a number of parallel work items each taking care of one horizontal convolution,
@@ -1875,14 +1269,22 @@ int dt_interpolation_resample_cl(const struct dt_interpolation *itor, int devid,
   const int height = roi_out->height;
 
   // make sure blocksize is not too large
-  const int taps = roundToNextPowerOfTwo(vmaxtaps); // the number of work items per row rounded up to a power of 2
-                                                    // (for quick recursive reduction)
+  const int taps = roundToNextPowerOfTwo(vmaxtaps);
+  // the number of work items per row rounded up to a power of 2
+  // (for quick recursive reduction)
+
   int vblocksize;
 
   dt_opencl_local_buffer_t locopt
-    = (dt_opencl_local_buffer_t){ .xoffset = 0, .xfactor = 1, .yoffset = 0, .yfactor = 1,
-                                  .cellsize = 4 * sizeof(float), .overhead = hmaxtaps * sizeof(float) + hmaxtaps * sizeof(int),
-                                  .sizex = 1, .sizey = (1 << 16) * taps };
+    = (dt_opencl_local_buffer_t)
+        { .xoffset = 0,
+          .xfactor = 1,
+          .yoffset = 0,
+          .yfactor = 1,
+          .cellsize = 4 * sizeof(float),
+          .overhead = hmaxtaps * sizeof(float) + hmaxtaps * sizeof(int),
+          .sizex = 1,
+          .sizey = (1 << 16) * taps };
 
   if(dt_opencl_local_buffer_opt(devid, kernel, &locopt))
     vblocksize = locopt.sizey;
@@ -1891,44 +1293,54 @@ int dt_interpolation_resample_cl(const struct dt_interpolation *itor, int devid,
 
   if(vblocksize < taps)
   {
-    // our strategy does not work: the vertical number of taps exceeds the vertical workgroupsize;
-    // there is no point in continuing on the GPU - that would be way too slow; let's delegate the stuff to
-    // the CPU then.
-    dt_print(
-        DT_DEBUG_OPENCL,
-        "[opencl_resampling] resampling plan cannot efficiently be run on the GPU - fall back to CPU.\n");
+    // our strategy does not work: the vertical number of taps exceeds
+    // the vertical workgroupsize; there is no point in continuing on
+    // the GPU - that would be way too slow; let's delegate the stuff
+    // to the CPU then.
+    err = CL_INVALID_WORK_GROUP_SIZE;
     goto error;
   }
 
   size_t sizes[3] = { ROUNDUPDWD(width, devid), ROUNDUP(height * taps, vblocksize), 1 };
   size_t local[3] = { 1, vblocksize, 1 };
 
-  // store resampling plan to device memory
-  // hindex, vindex, hkernel, vkernel: (v|h)maxtaps might be too small, so store a bit more than needed
-  dev_hindex = dt_opencl_copy_host_to_device_constant(devid, sizeof(int) * width * (hmaxtaps + 1), hindex);
+  // store resampling plan to device memory hindex, vindex, hkernel,
+  // vkernel: (v|h)maxtaps might be too small, so store a bit more
+  // than needed
+  err = CL_MEM_OBJECT_ALLOCATION_FAILURE;
+
+  dev_hindex = dt_opencl_copy_host_to_device_constant
+    (devid, sizeof(int) * width * (hmaxtaps + 1), hindex);
   if(dev_hindex == NULL) goto error;
 
-  dev_hlength = dt_opencl_copy_host_to_device_constant(devid, sizeof(int) * width, hlength);
+  dev_hlength = dt_opencl_copy_host_to_device_constant
+    (devid, sizeof(int) * width, hlength);
   if(dev_hlength == NULL) goto error;
 
   dev_hkernel
-      = dt_opencl_copy_host_to_device_constant(devid, sizeof(float) * width * (hmaxtaps + 1), hkernel);
+      = dt_opencl_copy_host_to_device_constant
+    (devid, sizeof(float) * width * (hmaxtaps + 1), hkernel);
   if(dev_hkernel == NULL) goto error;
 
-  dev_hmeta = dt_opencl_copy_host_to_device_constant(devid, sizeof(int) * width * 3, hmeta);
+  dev_hmeta = dt_opencl_copy_host_to_device_constant
+    (devid, sizeof(int) * width * 3, hmeta);
   if(dev_hmeta == NULL) goto error;
 
-  dev_vindex = dt_opencl_copy_host_to_device_constant(devid, sizeof(int) * height * (vmaxtaps + 1), vindex);
+  dev_vindex = dt_opencl_copy_host_to_device_constant
+    (devid, sizeof(int) * height * (vmaxtaps + 1), vindex);
   if(dev_vindex == NULL) goto error;
 
-  dev_vlength = dt_opencl_copy_host_to_device_constant(devid, sizeof(int) * height, vlength);
+  dev_vlength = dt_opencl_copy_host_to_device_constant
+    (devid, sizeof(int) * height, vlength);
   if(dev_vlength == NULL) goto error;
 
   dev_vkernel
-      = dt_opencl_copy_host_to_device_constant(devid, sizeof(float) * height * (vmaxtaps + 1), vkernel);
+      = dt_opencl_copy_host_to_device_constant
+    (devid, sizeof(float) * height * (vmaxtaps + 1), vkernel);
   if(dev_vkernel == NULL) goto error;
 
-  dev_vmeta = dt_opencl_copy_host_to_device_constant(devid, sizeof(int) * height * 3, vmeta);
+  dev_vmeta = dt_opencl_copy_host_to_device_constant
+    (devid, sizeof(int) * height * 3, vmeta);
   if(dev_vmeta == NULL) goto error;
 
   dt_opencl_set_kernel_arg(devid, kernel, 0, sizeof(cl_mem), (void *)&dev_in);
@@ -1949,27 +1361,9 @@ int dt_interpolation_resample_cl(const struct dt_interpolation *itor, int devid,
   dt_opencl_set_kernel_arg(devid, kernel, 15, hmaxtaps * sizeof(int), NULL);
   dt_opencl_set_kernel_arg(devid, kernel, 16, vblocksize * 4 * sizeof(float), NULL);
   err = dt_opencl_enqueue_kernel_2d_with_local(devid, kernel, sizes, local);
-  if(err != CL_SUCCESS) goto error;
-
-#if DEBUG_RESAMPLING_TIMING
-  ts_resampling = getts() - ts_resampling;
-  fprintf(stderr, "resampling_cl %p plan:%" PRId64 "us resampling:%" PRId64 "us\n", (void *)dev_in, ts_plan,
-          ts_resampling);
-#endif
-
-  dt_opencl_release_mem_object(dev_hindex);
-  dt_opencl_release_mem_object(dev_hlength);
-  dt_opencl_release_mem_object(dev_hkernel);
-  dt_opencl_release_mem_object(dev_hmeta);
-  dt_opencl_release_mem_object(dev_vindex);
-  dt_opencl_release_mem_object(dev_vlength);
-  dt_opencl_release_mem_object(dev_vkernel);
-  dt_opencl_release_mem_object(dev_vmeta);
-  dt_free_align(hlength);
-  dt_free_align(vlength);
-  return CL_SUCCESS;
 
 error:
+
   dt_opencl_release_mem_object(dev_hindex);
   dt_opencl_release_mem_object(dev_hlength);
   dt_opencl_release_mem_object(dev_hkernel);
@@ -1980,16 +1374,19 @@ error:
   dt_opencl_release_mem_object(dev_vmeta);
   dt_free_align(hlength);
   dt_free_align(vlength);
-  dt_print(DT_DEBUG_OPENCL, "[opencl_resampling] couldn't enqueue kernel! %d\n", err);
   return err;
 }
 
-/** Applies resampling (re-scaling) on a specific region-of-interest of an image. The input
- *  and output buffers hold exactly those roi's. roi_in and roi_out define the relative
- *  positions of the roi's within the full input and output image, respectively.
+/** Applies resampling (re-scaling) on a specific region-of-interest
+ *  of an image. The input and output buffers hold exactly those
+ *  roi's. roi_in and roi_out define the relative positions of the
+ *  roi's within the full input and output image, respectively.
  */
-int dt_interpolation_resample_roi_cl(const struct dt_interpolation *itor, int devid, cl_mem dev_out,
-                                     const dt_iop_roi_t *const roi_out, cl_mem dev_in,
+int dt_interpolation_resample_roi_cl(const struct dt_interpolation *itor,
+                                     const int devid,
+                                     cl_mem dev_out,
+                                     const dt_iop_roi_t *const roi_out,
+                                     cl_mem dev_in,
                                      const dt_iop_roi_t *const roi_in)
 {
   dt_iop_roi_t oroi = *roi_out;
@@ -2002,10 +1399,11 @@ int dt_interpolation_resample_roi_cl(const struct dt_interpolation *itor, int de
 }
 #endif
 
-static void dt_interpolation_resample_1c_plain(const struct dt_interpolation *itor, float *out,
-                                               const dt_iop_roi_t *const roi_out, const int32_t out_stride,
-                                               const float *const in, const dt_iop_roi_t *const roi_in,
-                                               const int32_t in_stride)
+static void _interpolation_resample_1c_plain(const struct dt_interpolation *itor,
+                                             float *out,
+                                             const dt_iop_roi_t *const roi_out,
+                                             const float *const in,
+                                             const dt_iop_roi_t *const roi_in)
 {
   int *hindex = NULL;
   int *hlength = NULL;
@@ -2015,71 +1413,45 @@ static void dt_interpolation_resample_1c_plain(const struct dt_interpolation *it
   float *vkernel = NULL;
   int *vmeta = NULL;
 
-  int r;
 
-  debug_info("resampling %p (%dx%d@%dx%d scale %f) -> %p (%dx%d@%dx%d scale %f)\n", in, roi_in->width,
-             roi_in->height, roi_in->x, roi_in->y, roi_in->scale, out, roi_out->width, roi_out->height,
-             roi_out->x, roi_out->y, roi_out->scale);
+  const size_t out_stride = roi_out->width * sizeof(float);
+  const size_t in_stride = roi_in->width * sizeof(float);
 
   // Fast code path for 1:1 copy, only cropping area can change
   if(roi_out->scale == 1.f)
   {
     const int x0 = roi_out->x * sizeof(float);
-#if DEBUG_RESAMPLING_TIMING
-    int64_t ts_resampling = getts();
-#endif
 #ifdef _OPENMP
-#pragma omp parallel for default(none) \
-    dt_omp_firstprivate(in, in_stride, out_stride, roi_out, x0) \
-    shared(out)
+#pragma omp parallel for default(none) schedule(static) \
+  dt_omp_firstprivate(in, out, in_stride, out_stride, roi_out, x0)
 #endif
     for(int y = 0; y < roi_out->height; y++)
     {
-      float *i = (float *)((char *)in + (size_t)in_stride * (y + roi_out->y) + x0);
-      float *o = (float *)((char *)out + (size_t)out_stride * y);
+      float *i = (float *)((char *)in + in_stride * (y + roi_out->y) + x0);
+      float *o = (float *)((char *)out + out_stride * y);
       memcpy(o, i, out_stride);
     }
-#if DEBUG_RESAMPLING_TIMING
-    ts_resampling = getts() - ts_resampling;
-    fprintf(stderr, "resampling %p plan:0us resampling:%" PRId64 "us\n", in, ts_resampling);
-#endif
     // All done, so easy case
     return;
   }
 
   // Generic non 1:1 case... much more complicated :D
-#if DEBUG_RESAMPLING_TIMING
-  int64_t ts_plan = getts();
-#endif
 
   // Prepare resampling plans once and for all
-  r = prepare_resampling_plan(itor, roi_in->width, roi_in->x, roi_out->width, roi_out->x, roi_out->scale,
-                              &hlength, &hkernel, &hindex, NULL);
-  if(r)
-  {
+  if(_prepare_resampling_plan(itor, roi_in->width, roi_in->x,
+                              roi_out->width, roi_out->x, roi_out->scale,
+                              &hlength, &hkernel, &hindex, NULL))
     goto exit;
-  }
 
-  r = prepare_resampling_plan(itor, roi_in->height, roi_in->y, roi_out->height, roi_out->y, roi_out->scale,
-                              &vlength, &vkernel, &vindex, &vmeta);
-  if(r)
-  {
+  if(_prepare_resampling_plan(itor, roi_in->height, roi_in->y,
+                              roi_out->height, roi_out->y, roi_out->scale,
+                              &vlength, &vkernel, &vindex, &vmeta))
     goto exit;
-  }
-
-#if DEBUG_RESAMPLING_TIMING
-  ts_plan = getts() - ts_plan;
-#endif
-
-#if DEBUG_RESAMPLING_TIMING
-  int64_t ts_resampling = getts();
-#endif
 
   // Process each output line
 #ifdef _OPENMP
-#pragma omp parallel for default(none) \
-  dt_omp_firstprivate(in, in_stride, out_stride, roi_out) \
-  shared(out, hindex, hlength, hkernel, vindex, vlength, vkernel, vmeta)
+#pragma omp parallel for default(none) schedule(static) \
+  dt_omp_firstprivate(vmeta, vlength, roi_out, hlength, in_stride, out_stride, in, vindex, hindex, hkernel, vkernel, out)
 #endif
   for(int oy = 0; oy < roi_out->height; oy++)
   {
@@ -2099,8 +1471,6 @@ static void dt_interpolation_resample_1c_plain(const struct dt_interpolation *it
     // Process each output column
     for(int ox = 0; ox < roi_out->width; ox++)
     {
-      debug_extra("output %p [% 4d % 4d]\n", out, ox, oy);
-
       // This will hold the resulting pixel
       float vs = 0.0f;
 
@@ -2110,7 +1480,7 @@ static void dt_interpolation_resample_1c_plain(const struct dt_interpolation *it
       for(int iy = 0; iy < vl; iy++)
       {
         // This is our input line
-        const float *i = (float *)((char *)in + (size_t)in_stride * vindex[viidx++]);
+        const float *i = (float *)((char *)in + in_stride * vindex[viidx++]);
 
         float vhs = 0.0f;
 
@@ -2132,7 +1502,8 @@ static void dt_interpolation_resample_1c_plain(const struct dt_interpolation *it
       }
 
       // Output pixel is ready
-      float *o = (float *)((char *)out + (size_t)oy * out_stride + (size_t)ox * sizeof(float));
+      float *o = (float *)((char *)out + (size_t)oy * out_stride
+                           + (size_t)ox * sizeof(float));
       *o = vs;
 
       // Reset vertical resampling context
@@ -2145,11 +1516,6 @@ static void dt_interpolation_resample_1c_plain(const struct dt_interpolation *it
     }
   }
 
-#if DEBUG_RESAMPLING_TIMING
-  ts_resampling = getts() - ts_resampling;
-  fprintf(stderr, "resampling %p plan:%" PRId64 "us resampling:%" PRId64 "us\n", in, ts_plan, ts_resampling);
-#endif
-
   exit:
   /* Free the resampling plans. It's nasty to optimize allocs like that, but
    * it simplifies the code :-D. The length array is in fact the only memory
@@ -2161,22 +1527,24 @@ static void dt_interpolation_resample_1c_plain(const struct dt_interpolation *it
 /** Applies resampling (re-scaling) on *full* input and output buffers.
  *  roi_in and roi_out define the part of the buffers that is affected.
  */
-void dt_interpolation_resample_1c(const struct dt_interpolation *itor, float *out,
-                                  const dt_iop_roi_t *const roi_out, const int32_t out_stride,
-                                  const float *const in, const dt_iop_roi_t *const roi_in,
-                                  const int32_t in_stride)
+void dt_interpolation_resample_1c(const struct dt_interpolation *itor,
+                                  float *out,
+                                  const dt_iop_roi_t *const roi_out,
+                                  const float *const in,
+                                  const dt_iop_roi_t *const roi_in)
 {
-  return dt_interpolation_resample_1c_plain(itor, out, roi_out, out_stride, in, roi_in, in_stride);
+  return _interpolation_resample_1c_plain(itor, out, roi_out, in, roi_in);
 }
 
 /** Applies resampling (re-scaling) on a specific region-of-interest of an image. The input
  *  and output buffers hold exactly those roi's. roi_in and roi_out define the relative
  *  positions of the roi's within the full input and output image, respectively.
  */
-void dt_interpolation_resample_roi_1c(const struct dt_interpolation *itor, float *out,
-                                      const dt_iop_roi_t *const roi_out, const int32_t out_stride,
-                                      const float *const in, const dt_iop_roi_t *const roi_in,
-                                      const int32_t in_stride)
+void dt_interpolation_resample_roi_1c(const struct dt_interpolation *itor,
+                                      float *out,
+                                      const dt_iop_roi_t *const roi_out,
+                                      const float *const in,
+                                      const dt_iop_roi_t *const roi_in)
 {
   dt_iop_roi_t oroi = *roi_out;
   oroi.x = oroi.y = 0;
@@ -2184,7 +1552,7 @@ void dt_interpolation_resample_roi_1c(const struct dt_interpolation *itor, float
   dt_iop_roi_t iroi = *roi_in;
   iroi.x = iroi.y = 0;
 
-  dt_interpolation_resample_1c(itor, out, &oroi, out_stride, in, &iroi, in_stride);
+  dt_interpolation_resample_1c(itor, out, &oroi, in, &iroi);
 }
 
 // clang-format off
@@ -2192,4 +1560,3 @@ void dt_interpolation_resample_roi_1c(const struct dt_interpolation *itor, float
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
 // clang-format on
-

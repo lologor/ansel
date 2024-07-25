@@ -62,18 +62,6 @@ typedef struct dt_lib_t
       void (*set_sample_point)(struct dt_lib_module_t *self, const float pos[2]);
     } colorpicker;
 
-    /** Histogram processing hooks */
-    struct
-    {
-      struct dt_lib_module_t *module;
-      void (*process)(struct dt_lib_module_t *self, const float *const input,
-                      int width, int height,
-                      const dt_iop_order_iccprofile_info_t *const profile_info_from,
-                      const dt_iop_order_iccprofile_info_t *const profile_info_to);
-      // FIXME: now that PR #5532 is merged, define this as dt_atomic_int and include "common/atomic.h" and use dt_atomic_set_int() and dt_atomic_get_int()
-      gboolean is_linear;
-    } histogram;
-
     struct
     {
       struct dt_lib_module_t *module;
@@ -179,4 +167,3 @@ gboolean dt_handle_dialog_enter(GtkWidget *widget, GdkEventKey *event, gpointer 
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
 // clang-format on
-

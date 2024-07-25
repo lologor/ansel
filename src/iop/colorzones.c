@@ -1180,7 +1180,7 @@ static gboolean _area_draw_callback(GtkWidget *widget, cairo_t *crf, dt_iop_modu
     {
       const int ch_hist = p.channel;
       const uint32_t *hist = self->histogram;
-      const gboolean is_linear = darktable.lib->proxy.histogram.is_linear;
+      const gboolean is_linear = FALSE;
       const float hist_max = is_linear ? self->histogram_max[ch_hist]
                                        : logf(1.0f + self->histogram_max[ch_hist]);
       if(hist && hist_max > 0.0f)

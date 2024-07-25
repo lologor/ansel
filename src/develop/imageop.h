@@ -520,6 +520,39 @@ gboolean dt_iop_check_modules_equal(dt_iop_module_t *mod_1, dt_iop_module_t *mod
 gboolean dt_iop_get_cache_bypass(dt_iop_module_t *module);
 void dt_iop_set_cache_bypass(dt_iop_module_t *module, gboolean state);
 
+// after writing data using copy_pixel_nontemporal, it is necessary to
+// ensure that the writes have completed before attempting reads from
+// a different core.  This function produces the required memory
+// fence to ensure proper visibility
+static inline void dt_sfence()
+{
+#if defined(__SSE__)
+  _mm_sfence();
+#else
+  // the following generates an MFENCE instruction on x86/x64.  We
+  // only really need SFENCE, which is less expensive, but none of the
+  // other memory orders generate *any* fence instructions on x64.
+#ifdef __cplusplus
+  std::atomic_thread_fence(std::memory_order_seq_cst);
+#else
+  atomic_thread_fence(memory_order_seq_cst);
+#endif
+#endif
+}
+
+// if the copy_pixel_nontemporal() writes were inside an OpenMP
+// parallel loop, the OpenMP parallelization will have performed a
+// memory fence before resuming single-threaded operation, so a
+// dt_sfence would be superfluous.  But if compiled without OpenMP
+// parallelization, we should play it safe and emit a memory fence.
+// This function should be used right after a parallelized for loop,
+// where it will produce a barrier only if needed.
+#ifdef _OPENMP
+#define dt_omploop_sfence()
+#else
+#define dt_omploop_sfence() dt_sfence()
+#endif
+
 
 // clang-format off
 // modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py

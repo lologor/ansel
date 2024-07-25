@@ -94,6 +94,44 @@ static char *_pipe_type_to_str(int pipe_type)
   return r;
 }
 
+inline static void _copy_buffer(const char *const input, char *const output,
+                           const size_t height, const size_t o_width, const size_t i_width,
+                           const size_t x_offset, const size_t y_offset,
+                           const size_t stride, const size_t bpp)
+{
+#ifdef _OPENMP
+#pragma omp parallel for default(none) \
+          dt_omp_firstprivate(input, output, bpp, o_width, i_width, height, x_offset, y_offset, stride) \
+          schedule(static)
+#endif
+  for(size_t j = 0; j < height; j++)
+    memcpy(output + bpp * j * o_width,
+           input + bpp * (x_offset + (y_offset + j) * i_width),
+           stride);
+}
+
+
+inline static void _uint8_to_float(const uint8_t *const input, float *const output,
+                                   const size_t width, const size_t height, const size_t chan)
+{
+#ifdef _OPENMP
+#pragma omp parallel for simd default(none) \
+        aligned(input, output: 64) \
+        dt_omp_firstprivate(input, output, width, height, chan) \
+        schedule(static)
+#endif
+  for(size_t k = 0; k < height * width; k++)
+  {
+    const size_t index = k * chan;
+    // Warning: we take BGRa and put it back into RGBa
+    output[index + 0] = (float)input[index + 2] / 255.f;
+    output[index + 1] = (float)input[index + 1] / 255.f;
+    output[index + 2] = (float)input[index + 0] / 255.f;
+    output[index + 3] = 0.f;
+  }
+}
+
+
 int dt_dev_pixelpipe_init_export(dt_dev_pixelpipe_t *pipe, int32_t width, int32_t height, int levels,
                                  gboolean store_masks)
 {
@@ -626,6 +664,112 @@ static void histogram_collect_cl(int devid, dt_dev_pixelpipe_iop_t *piece, cl_me
   if(tmpbuf) dt_free_align(tmpbuf);
 }
 #endif
+
+
+dt_backbuf_t * _get_backuf(dt_develop_t *dev, const char *op)
+{
+  if(!strcmp(op, "demosaic"))
+    return &dev->raw_histogram;
+  else if(!strcmp(op, "colorout"))
+    return &dev->output_histogram;
+  else if(!strcmp(op, "gamma"))
+    return &dev->display_histogram;
+  else
+    return NULL;
+}
+
+static void pixelpipe_get_histogram_backbuf(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev,
+                                            void *output, void *cl_mem_output,
+                                            dt_iop_buffer_dsc_t *out_format, const dt_iop_roi_t *roi,
+                                            dt_iop_module_t *module, dt_dev_pixelpipe_iop_t *piece,
+                                            const uint64_t hash, const size_t bpp)
+{
+  // Runs only on full image but downscaled for perf, aka preview pipe
+  if(((pipe->type & DT_DEV_PIXELPIPE_PREVIEW) != DT_DEV_PIXELPIPE_PREVIEW) || !piece->enabled) return;
+
+  // Not an RGBa float buffer ?
+  if(!((bpp == 4 * sizeof(float)) || (bpp == 4 * sizeof(uint8_t)))) return;
+
+  dt_backbuf_t *backbuf = _get_backuf(dev, module->op);
+  if(backbuf == NULL) return; // This module is not wired to global histograms
+  if(backbuf->hash == hash) return; // Hash didn't change, nothing to update.
+
+  // Prepare the buffer if needed
+  if(backbuf->buffer == NULL)
+  {
+    // Buffer uninited
+    backbuf->buffer = dt_alloc_align(64, roi->width * roi->height * bpp);
+    backbuf->height = roi->height;
+    backbuf->width = roi->width;
+    backbuf->bpp = bpp;
+  }
+  else if((backbuf->height != roi->height) || (backbuf->width != roi->width) || (backbuf->bpp != bpp))
+  {
+    // Cached buffer size doesn't match current one.
+    // There is no reason yet why this should happen because the preview pipe doesn't change size during its lifetime.
+    // But let's future-proof it in case someone gets creative.
+    dt_free_align(backbuf->buffer); // maybe write a dt_realloc_align routine ?
+    backbuf->buffer = dt_alloc_align(64, roi->width * roi->height * bpp);
+    backbuf->height = roi->height;
+    backbuf->width = roi->width;
+    backbuf->bpp = bpp;
+  }
+
+  if(backbuf->buffer == NULL)
+  {
+    // Out of memory to allocate. Notify histogram
+    backbuf->hash = -1;
+    return;
+  }
+
+  // Integrity hash, mixing interal module params state, and params states of previous modules in pipe.
+  backbuf->hash = hash;
+
+  // Copy to histogram cache
+  dt_times_t start;
+  dt_get_times(&start);
+
+#ifdef HAVE_OPENCL
+  if(cl_mem_output && module->process_cl && piece->process_cl_ready)
+  {
+    cl_int err = dt_opencl_copy_device_to_host(pipe->devid, backbuf->buffer, cl_mem_output, roi->width, roi->height, bpp);
+
+    // Notify the histogram that the backbuf is unusable
+    if(err != CL_SUCCESS) backbuf->hash = -1;
+  }
+  else if(output)
+  {
+    _copy_buffer(output, (char *)backbuf->buffer, roi->height, roi->width, roi->width, 0, 0, roi->width * bpp, bpp);
+  }
+#else
+  if(output)
+    _copy_buffer(output, (char *)backbuf->buffer, roi->height, roi->width, roi->width, 0, 0, roi->width * bpp, bpp);
+#endif
+
+  // gamma outputs uint8, but its bpp count is still 16 like the modules outputting float32
+  if(!strcmp(module->op, "gamma") || bpp == 4 * sizeof(uint8_t))
+  {
+    // We got 8 bits data, we need to convert it back to float32 for uniform handling
+    float *new_buffer = dt_alloc_align(64, roi->width * roi->height * 4 * sizeof(float));
+    if(new_buffer == NULL) return;
+
+    uint8_t *old_buffer = (uint8_t *)backbuf->buffer;
+    _uint8_to_float(old_buffer, new_buffer, roi->width, roi->height, 4);
+    backbuf->buffer = (void *)new_buffer;
+    dt_free_align(old_buffer);
+  }
+
+  dt_show_times_f(&start, "[dev_pixelpipe]", "copying global histogram for %s", module->op);
+
+  // That's all. From there, histogram catches the "preview pipeline finished recomputing" signal and redraws if needed.
+  // We don't manage thread locks because there is only one writing point and one reading point, synchronized
+  // through signal & callback.
+
+  // Note that we don't compute the histogram here because, depending on the type of scope requested in GUI,
+  // intermediate color conversions might be needed (vectorscope) or various pixel binnings required (waveform).
+  // Color conversions and binning are deferred to the GUI thread, prior to drawing update.
+}
+
 
 // helper for per-module color picking
 static int pixelpipe_picker_helper(dt_iop_module_t *module, const dt_iop_roi_t *roi, dt_aligned_pixel_t picked_color,
@@ -1584,24 +1728,6 @@ static int pixelpipe_process_on_GPU(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev,
 #endif
 
 
-// Copy buffers
-inline static void _copy_buffer(const char *const input, char *const output,
-                           const size_t height, const size_t o_width, const size_t i_width,
-                           const size_t x_offset, const size_t y_offset,
-                           const size_t stride, const size_t bpp)
-{
-#ifdef _OPENMP
-#pragma omp parallel for default(none) \
-          dt_omp_firstprivate(input, output, bpp, o_width, i_width, height, x_offset, y_offset, stride) \
-          schedule(static)
-#endif
-  for(size_t j = 0; j < height; j++)
-    memcpy(output + bpp * j * o_width,
-           input + bpp * (x_offset + (y_offset + j) * i_width),
-           stride);
-}
-
-
 static void _print_perf_debug(dt_dev_pixelpipe_t *pipe, const dt_pixelpipe_flow_t pixelpipe_flow, dt_dev_pixelpipe_iop_t *piece, dt_iop_module_t *module, dt_times_t *start)
 {
   char histogram_log[32] = "";
@@ -1708,6 +1834,103 @@ static void _print_nan_debug(dt_dev_pixelpipe_t *pipe, void *cl_mem_output, void
 }
 
 
+static int _init_base_buffer(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev, void **output,
+                             void **cl_mem_output, dt_iop_buffer_dsc_t **out_format,
+                             dt_iop_roi_t *roi_in, const dt_iop_roi_t *roi_out,
+                             const uint64_t hash,
+                             const gboolean bypass_cache,
+                             const size_t bufsize, const size_t bpp)
+{
+// we're looking for the full buffer
+  if(roi_out->scale == 1.0 && roi_out->x == 0 && roi_out->y == 0 && pipe->iwidth == roi_out->width
+      && pipe->iheight == roi_out->height)
+  {
+    *output = pipe->input;
+    return 0;
+  }
+  else if(bypass_cache || dt_dev_pixelpipe_cache_get(&(pipe->cache), hash, bufsize, output, out_format))
+  {
+    if(roi_in->scale == 1.0f)
+    {
+      // fast branch for 1:1 pixel copies.
+      // last minute clamping to catch potential out-of-bounds in roi_in and roi_out
+      const int in_x = MAX(roi_in->x, 0);
+      const int in_y = MAX(roi_in->y, 0);
+      const int cp_width = MAX(0, MIN(roi_out->width, pipe->iwidth - in_x));
+      const int cp_height = MIN(roi_out->height, pipe->iheight - in_y);
+
+      if(cp_width > 0 && cp_height > 0)
+      {
+        _copy_buffer((const char *const)pipe->input, (char *const)*output, cp_height, roi_out->width,
+                      pipe->iwidth, in_x, in_y, bpp * cp_width, bpp);
+        return 0;
+      }
+      else
+      {
+        // Invalid dimensions
+        return 1;
+      }
+    }
+    else if(bpp == 16)
+    {
+      // dt_iop_clip_and_zoom() expects 4 * float 32 only
+      roi_in->x /= roi_out->scale;
+      roi_in->y /= roi_out->scale;
+      roi_in->width = pipe->iwidth;
+      roi_in->height = pipe->iheight;
+      roi_in->scale = 1.0f;
+      dt_iop_clip_and_zoom(*output, pipe->input, roi_out, roi_in, roi_out->width, pipe->iwidth);
+      return 0;
+    }
+    else
+    {
+      fprintf(stdout,
+                "Base buffer init: scale %f != 1.0 but the input has %li bytes per pixel. This case is not "
+                "covered by the pipeline, please report the bug.\n",
+                roi_out->scale, bpp);
+      return 1;
+    }
+  }
+  // else found in cache.
+  return 0;
+}
+
+static int _process_masks_preview(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev, dt_dev_pixelpipe_iop_t *piece,
+                                  void *input, void **output,
+                                  void *cl_mem_input, void **cl_mem_output, dt_iop_buffer_dsc_t **out_format,
+                                  const dt_iop_roi_t *roi_in, const dt_iop_roi_t *roi_out,
+                                  const size_t in_bpp, const size_t out_bpp, dt_iop_module_t *module)
+{
+  // special case: user requests to see channel data in the parametric mask of a module, or the blending
+  // mask. In that case we skip all modules manipulating pixel content and only process image distorting
+  // modules. Finally "gamma" is responsible for displaying channel/mask data accordingly.
+  if(strcmp(module->op, "gamma") != 0
+     && (pipe->mask_display != DT_DEV_PIXELPIPE_DISPLAY_NONE)
+     && !(module->operation_tags() & IOP_TAG_DISTORT)
+     && (in_bpp == out_bpp) && !memcmp(roi_in, roi_out, sizeof(struct dt_iop_roi_t)))
+  {
+    // since we're not actually running the module, the output format is the same as the input format
+    **out_format = pipe->dsc = piece->dsc_out = piece->dsc_in;
+
+#ifdef HAVE_OPENCL
+    if(dt_opencl_is_inited() && pipe->opencl_enabled && pipe->devid >= 0 && (cl_mem_input != NULL))
+      *cl_mem_output = cl_mem_input;
+    else
+      *output = input;
+#else
+    *output = input;
+#endif
+    /* Previously: used full buffer copy on CPU:
+    _copy_buffer((const char *const)input, (char *const)*output, roi_out->height, roi_out->width, roi_in.width,
+                   0, 0, in_bpp * roi_in.width, in_bpp); */
+
+    return 0;
+  }
+
+  return 1;
+}
+
+
 // recursive helper for process:
 static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *dev, void **output,
                                         void **cl_mem_output, dt_iop_buffer_dsc_t **out_format,
@@ -1755,9 +1978,10 @@ static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *
 
     (void)dt_dev_pixelpipe_cache_get(&(pipe->cache), hash, bufsize, output, out_format);
 
-    // we're done! as colorpicker/scopes only work on gamma iop
-    // input -- which is unavailable via cache -- there's no need to
-    // run these
+    // Get the pipe-global histograms. We want float32 buffers, so we take all outputs
+    // except for gamma which outputs uint8 so we need to deal with that internally
+    pixelpipe_get_histogram_backbuf(pipe, dev, *output, NULL, *out_format, roi_out, module, piece, hash, bpp);
+
     KILL_SWITCH_AND_FLUSH_CACHE;
     return 0;
   }
@@ -1773,42 +1997,10 @@ static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *
     // 3a) import input array with given scale and roi
     dt_times_t start;
     dt_get_times(&start);
-    // we're looking for the full buffer
-    {
-      if(roi_out->scale == 1.0 && roi_out->x == 0 && roi_out->y == 0 && pipe->iwidth == roi_out->width
-         && pipe->iheight == roi_out->height)
-      {
-        *output = pipe->input;
-      }
-      else if(bypass_cache || dt_dev_pixelpipe_cache_get(&(pipe->cache), hash, bufsize, output, out_format))
-      {
-        if(roi_in.scale == 1.0f)
-        {
-          // fast branch for 1:1 pixel copies.
-          // last minute clamping to catch potential out-of-bounds in roi_in and roi_out
-          const int in_x = MAX(roi_in.x, 0);
-          const int in_y = MAX(roi_in.y, 0);
-          const int cp_width = MAX(0, MIN(roi_out->width, pipe->iwidth - in_x));
-          const int cp_height = MIN(roi_out->height, pipe->iheight - in_y);
 
-          if(cp_width > 0)
-            _copy_buffer((const char *const)pipe->input, (char *const)*output, cp_height, roi_out->width,
-                         pipe->iwidth, in_x, in_y, bpp * cp_width, bpp);
-          else
-            return 1; // Something is wrong
-        }
-        else
-        {
-          roi_in.x /= roi_out->scale;
-          roi_in.y /= roi_out->scale;
-          roi_in.width = pipe->iwidth;
-          roi_in.height = pipe->iheight;
-          roi_in.scale = 1.0f;
-          dt_iop_clip_and_zoom(*output, pipe->input, roi_out, &roi_in, roi_out->width, pipe->iwidth);
-        }
-      }
-      // else found in cache.
-    }
+    if(_init_base_buffer(pipe, dev, output, cl_mem_output, out_format, &roi_in, roi_out, hash, bypass_cache, bufsize,
+                      bpp))
+      return 1;
 
     dt_show_times_f(&start, "[dev_pixelpipe]", "initing base buffer [%s]", _pipe_type_to_str(pipe->type));
     return 0;
@@ -1819,7 +2011,6 @@ static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *
   // get region of interest which is needed in input
   // This is already computed ahead of running at init time in _get_roi_in()
   memcpy(&roi_in, &piece->planned_roi_in, sizeof(dt_iop_roi_t));
-
   // Otherwise, run this:
   // module->modify_roi_in(module, piece, roi_out, &roi_in);
 
@@ -1851,40 +2042,10 @@ static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *
 
   dt_pixelpipe_flow_t pixelpipe_flow = (PIXELPIPE_FLOW_NONE | PIXELPIPE_FLOW_HISTOGRAM_NONE);
 
-  // special case: user requests to see channel data in the parametric mask of a module, or the blending
-  // mask. In that case we skip all modules manipulating pixel content and only process image distorting
-  // modules. Finally "gamma" is responsible for displaying channel/mask data accordingly.
-  if(strcmp(module->op, "gamma") != 0
-     && (pipe->mask_display != DT_DEV_PIXELPIPE_DISPLAY_NONE)
-     && !(module->operation_tags() & IOP_TAG_DISTORT)
-     && (in_bpp == out_bpp) && !memcmp(&roi_in, roi_out, sizeof(struct dt_iop_roi_t)))
-  {
-    // since we're not actually running the module, the output format is the same as the input format
-    **out_format = pipe->dsc = piece->dsc_out = piece->dsc_in;
-
-#ifdef HAVE_OPENCL
-    if(dt_opencl_is_inited() && pipe->opencl_enabled && pipe->devid >= 0 && (cl_mem_input != NULL))
-    {
-      *cl_mem_output = cl_mem_input;
-    }
-    else
-    {
-      /*
-      _copy_buffer((const char *const)input, (char *const)*output, roi_out->height, roi_out->width, roi_in.width,
-                   0, 0, in_bpp * roi_in.width, in_bpp);
-      */
-      *output = input;
-    }
-#else // don't HAVE_OPENCL
-    /*
-    _copy_buffer((const char *const)input, (char *const)*output, roi_out->height, roi_out->width, roi_in.width,
-                   0, 0, in_bpp * roi_in.width, in_bpp);
-    */
-    *output = input;
-#endif
-
+  // Bypass pixel filtering and return early if we only want the pipe to display mask previews
+  if(!_process_masks_preview(pipe, dev, piece, input, output, cl_mem_input, cl_mem_output, out_format, &roi_in, roi_out,
+                         in_bpp, out_bpp, module))
     return 0;
-  }
 
   /* get tiling requirement of module */
   dt_develop_tiling_t tiling = { 0 };
@@ -1916,6 +2077,7 @@ static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *
   assert(tiling.factor > 0.0f);
   assert(tiling.factor_cl > 0.0f);
 
+  // Actual pixel processing for this module
 #ifdef HAVE_OPENCL
   if (pixelpipe_process_on_GPU(pipe, dev, input, cl_mem_input, input_format, &roi_in, output, cl_mem_output, out_format, roi_out,
                                module, piece, &tiling, &pixelpipe_flow, in_bpp, bpp))
@@ -1925,6 +2087,10 @@ static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *
                                module, piece, &tiling, &pixelpipe_flow))
     return 1;
 #endif
+
+  // Get the pipe-global histograms. We want float32 buffers, so we take all outputs
+  // except for gamma which outputs uint8 so we need to deal with that internally
+  pixelpipe_get_histogram_backbuf(pipe, dev, *output, *cl_mem_output, *out_format, roi_out, module, piece, hash, bpp);
 
   // Don't cache outputs if we requested to bypass the cache
   if(bypass_cache) dt_dev_pixelpipe_cache_invalidate(&(pipe->cache), *output);
@@ -1946,19 +2112,6 @@ static int dt_dev_pixelpipe_process_rec(dt_dev_pixelpipe_t *pipe, dt_develop_t *
     // Pick RGB/Lab for the primary colorpicker and live samples
     if(darktable.lib->proxy.colorpicker.picker_proxy || darktable.lib->proxy.colorpicker.live_samples)
       _pixelpipe_pick_samples(dev, module, (const float *const )input, &roi_in);
-
-    // FIXME: read this from dt_ioppr_get_pipe_output_profile_info()?
-    const dt_iop_order_iccprofile_info_t *const display_profile
-      = dt_ioppr_add_profile_info_to_list(dev, darktable.color_profiles->display_type,
-                                          darktable.color_profiles->display_filename, INTENT_RELATIVE_COLORIMETRIC);
-
-    // Since histogram is being treated as the second-to-last link
-    // in the pixelpipe and has a "process" call, why not treat it
-    // as an iop? Granted, other views such as tether may also
-    // benefit via a histogram.
-    darktable.lib->proxy.histogram.process(darktable.lib->proxy.histogram.module, input,
-                                           roi_in.width, roi_in.height,
-                                           display_profile, display_profile);
   }
 
   KILL_SWITCH_AND_FLUSH_CACHE;

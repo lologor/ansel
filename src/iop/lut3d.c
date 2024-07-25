@@ -1390,6 +1390,8 @@ static void filepath_callback(GtkWidget *widget, dt_iop_module_t *self)
   dt_iop_lut3d_params_t *p = (dt_iop_lut3d_params_t *)self->params;
   char filepath[DT_IOP_LUT3D_MAX_PATHNAME];
   g_strlcpy(filepath, dt_bauhaus_combobox_get_text(widget), sizeof(filepath));
+  fprintf(stdout, "filepath: %s\n", filepath);
+
   if (!g_str_has_prefix(filepath, invalid_filepath_prefix))
   {
     filepath_set_unix_separator(filepath);
@@ -1510,7 +1512,7 @@ static void update_filepath_combobox(dt_iop_lut3d_gui_data_t *g, char *filepath,
     char *folder = g_build_filename(lutfolder, relativepath, NULL);
     struct dirent *dir;
     DIR *d = opendir(folder);
-    if (d)
+    if(d)
     {
       dt_bauhaus_combobox_clear(g->filepath);
       while ((dir = readdir(d)) != NULL)
@@ -1531,7 +1533,7 @@ static void update_filepath_combobox(dt_iop_lut3d_gui_data_t *g, char *filepath,
       g_ptr_array_sort(combo_data->entries, array_str_cmp);
       closedir(d);
     }
-    if (!dt_bauhaus_combobox_set_from_text(g->filepath, filepath))
+    if(!dt_bauhaus_combobox_set_from_text(g->filepath, filepath))
     { // file may have disappeared - show it
       char *invalidfilepath = g_strconcat(invalid_filepath_prefix, filepath, NULL);
       dt_bauhaus_combobox_add(g->filepath, invalidfilepath);
@@ -1608,6 +1610,8 @@ static void button_clicked(GtkWidget *widget, dt_iop_module_t *self)
     }
     g_free(filepath);
     gtk_widget_set_sensitive(g->filepath, p->filepath[0]);
+    g_strlcpy(p->filepath, dt_bauhaus_combobox_get_text(g->filepath), sizeof(p->filepath));
+    dt_dev_add_history_item(darktable.develop, self, TRUE);
   }
   g_free(lutfolder);
   g_object_unref(filechooser);

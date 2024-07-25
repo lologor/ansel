@@ -1,12 +1,13 @@
-Authors
-=======
+# Adding man pages
+
+## Authors
+
 
 To add a new man page just write it in .pod format and add it to the list at the top of `CMakeLists.txt`. Then rerun cmake. Make sure to add the `$Date$` and `$Release$` lines in the end of the file.
 
 When editing a man page make sure to update the `$Date$` and `$Release$`.
 
-Translators
-===========
+## Translators
 
 For translating man pages we use `po4a`.
 

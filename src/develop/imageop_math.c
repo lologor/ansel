@@ -135,8 +135,7 @@ void dt_iop_clip_and_zoom(float *out, const float *const in, const dt_iop_roi_t 
                           const dt_iop_roi_t *const roi_in, const int32_t out_stride, const int32_t in_stride)
 {
   const struct dt_interpolation *itor = dt_interpolation_new(DT_INTERPOLATION_USERPREF);
-  dt_interpolation_resample(itor, out, roi_out, out_stride * 4 * sizeof(float), in, roi_in,
-                            in_stride * 4 * sizeof(float));
+  dt_interpolation_resample(itor, out, roi_out, in, roi_in);
 }
 
 // apply clip and zoom on the image region supplied in the input buffer.
@@ -146,8 +145,7 @@ void dt_iop_clip_and_zoom_roi(float *out, const float *const in, const dt_iop_ro
                               const int32_t in_stride)
 {
   const struct dt_interpolation *itor = dt_interpolation_new(DT_INTERPOLATION_USERPREF);
-  dt_interpolation_resample_roi(itor, out, roi_out, out_stride * 4 * sizeof(float), in, roi_in,
-                                in_stride * 4 * sizeof(float));
+  dt_interpolation_resample_roi(itor, out, roi_out, in, roi_in);
 }
 
 #ifdef HAVE_OPENCL
@@ -1009,4 +1007,3 @@ void dt_iop_estimate_cubic(const float x[4], const float y[4], float a[4])
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
 // clang-format on
-

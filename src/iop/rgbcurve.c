@@ -817,7 +817,7 @@ static gboolean _area_draw_callback(GtkWidget *widget, cairo_t *crf, dt_iop_modu
   if(self->enabled)
   {
     const uint32_t *hist = self->histogram;
-    const gboolean is_linear = darktable.lib->proxy.histogram.is_linear;
+    const gboolean is_linear = FALSE;
     float hist_max;
 
     if(autoscale == DT_S_SCALE_AUTOMATIC_RGB)

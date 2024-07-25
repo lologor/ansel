@@ -1,6 +1,6 @@
 /* --------------------------------------------------------------------------
     This file is part of darktable,
-    Copyright (C) 2012-2021 darktable developers.
+    Copyright (C) 2012-2023 darktable developers.
 
     darktable is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -21,9 +21,7 @@
 #include "common/opencl.h"
 #include "develop/pixelpipe_hb.h"
 
-#if defined(__SSE__)
-#include <xmmintrin.h>
-#endif
+G_BEGIN_DECLS
 
 /** Available interpolations */
 enum dt_interpolation_type
@@ -41,23 +39,19 @@ enum dt_interpolation_type
 };
 
 /** Interpolation function */
-typedef float (*dt_interpolation_func)(float width, float t);
-
-#if defined(__SSE2__)
-/** Interpolation function (SSE) */
-typedef __m128 (*dt_interpolation_sse_func)(__m128 width, __m128 t);
-#endif
+typedef float (*dt_interpolation_func)(float *taps,
+                                       size_t num_taps,
+                                       float width,
+                                       float first_tap,
+                                       float interval);
 
 /** Interpolation structure */
 struct dt_interpolation
 {
   enum dt_interpolation_type id;     /**< Id such as defined by the dt_interpolation_type */
   const char *name;                  /**< internal name  */
-  int width;                         /**< Half width of its kernel support */
-  dt_interpolation_func func;        /**< Kernel function */
-#if defined(__SSE2__)
-  dt_interpolation_sse_func funcsse; /**< Kernel function (four params a time) */
-#endif
+  size_t width;                      /**< Half width of its kernel support */
+  dt_interpolation_func maketaps;    /**< Kernel function */
 };
 
 /** Compute a single interpolated sample.
@@ -100,15 +94,10 @@ float dt_interpolation_compute_sample(const struct dt_interpolation *itor, const
  * @param y Y-Coordinate of the requested sample
  * @param width Width of the input image
  * @param height Width of the input image
- * @param linestride Stride in bytes for complete line
+ * @param linestride Stride in number of pixels for complete line
  *
  */
 void dt_interpolation_compute_pixel4c(const struct dt_interpolation *itor, const float *in, float *out,
-                                      const float x, const float y, const int width, const int height,
-                                      const int linestride);
-
-// same as above for single channel images (i.e., masks). no SSE or CPU code paths for now
-void dt_interpolation_compute_pixel1c(const struct dt_interpolation *itor, const float *in, float *out,
                                       const float x, const float y, const int width, const int height,
                                       const int linestride);
 
@@ -126,9 +115,9 @@ const struct dt_interpolation *dt_interpolation_new(enum dt_interpolation_type t
  * <li>The resampling is isotropic (same for both x and y directions),
  * represented by roi_out->scale</li>
  * <li>It generates roi_out->width samples horizontally whose positions span
- * from roi_out->x to roi_out->x + roi_out->width</li>
+ * from roi_out->x to roi_out->x + roi_out->width - 1</li>
  * <li>It generates roi_out->height samples vertically whose positions span
- * from roi_out->y to roi_out->y + roi_out->height</li>
+ * from roi_out->y to roi_out->y + roi_out->height - 1</li>
  * </ul>
  *
  * @param itor [in] Interpolator to use
@@ -140,14 +129,12 @@ const struct dt_interpolation *dt_interpolation_new(enum dt_interpolation_type t
  * @param in_stride [in] Input line stride in <strong>bytes</strong>
  */
 void dt_interpolation_resample(const struct dt_interpolation *itor, float *out,
-                               const dt_iop_roi_t *const roi_out, const int32_t out_stride,
-                               const float *const in, const dt_iop_roi_t *const roi_in,
-                               const int32_t in_stride);
+                               const dt_iop_roi_t *const roi_out,
+                               const float *const in, const dt_iop_roi_t *const roi_in);
 
 void dt_interpolation_resample_roi(const struct dt_interpolation *itor, float *out,
-                                   const dt_iop_roi_t *const roi_out, const int32_t out_stride,
-                                   const float *const in, const dt_iop_roi_t *const roi_in,
-                                   const int32_t in_stride);
+                                   const dt_iop_roi_t *const roi_out,
+                                   const float *const in, const dt_iop_roi_t *const roi_in);
 
 #ifdef HAVE_OPENCL
 typedef struct dt_interpolation_cl_global_t
@@ -168,9 +155,9 @@ void dt_interpolation_free_cl_global(dt_interpolation_cl_global_t *g);
  * <li>The resampling is isotropic (same for both x and y directions),
  * represented by roi_out->scale</li>
  * <li>It generates roi_out->width samples horizontally whose positions span
- * from roi_out->x to roi_out->x + roi_out->width</li>
+ * from roi_out->x to roi_out->x + roi_out->width - 1</li>
  * <li>It generates roi_out->height samples vertically whose positions span
- * from roi_out->y to roi_out->y + roi_out->height</li>
+ * from roi_out->y to roi_out->y + roi_out->height - 1</li>
  * </ul>
  *
  * @param itor [in] Interpolator to use
@@ -191,20 +178,18 @@ int dt_interpolation_resample_roi_cl(const struct dt_interpolation *itor, int de
                                      const dt_iop_roi_t *const roi_in);
 #endif
 
-// same as above for single channel images (i.e., masks). no SSE or CPU code paths for now
-void dt_interpolation_resample_1c(const struct dt_interpolation *itor, float *out,
-                                  const dt_iop_roi_t *const roi_out, const int32_t out_stride,
-                                  const float *const in, const dt_iop_roi_t *const roi_in,
-                                  const int32_t in_stride);
+void dt_interpolation_resample_1c(const struct dt_interpolation *itor,
+                                  float *out, const dt_iop_roi_t *const roi_out,
+                                  const float *const in, const dt_iop_roi_t *const roi_in);
 
-void dt_interpolation_resample_roi_1c(const struct dt_interpolation *itor, float *out,
-                                      const dt_iop_roi_t *const roi_out, const int32_t out_stride,
-                                      const float *const in, const dt_iop_roi_t *const roi_in,
-                                      const int32_t in_stride);
+void dt_interpolation_resample_roi_1c(const struct dt_interpolation *itor,
+                                      float *out, const dt_iop_roi_t *const roi_out,
+                                      const float *const in, const dt_iop_roi_t *const roi_in);
+
+G_END_DECLS
 
 // clang-format off
 // modelines: These editor modelines have been set for all relevant files by tools/update_modelines.py
 // vim: shiftwidth=2 expandtab tabstop=2 cindent
 // kate: tab-indents: off; indent-width 2; replace-tabs on; indent-mode cstyle; remove-trailing-spaces modified;
 // clang-format on
-

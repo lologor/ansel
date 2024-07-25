@@ -1,4 +1,4 @@
-Roadmap
+# Import Roadmap
 
 ## Entrées
 
@@ -19,7 +19,7 @@ Roadmap
 ## Sorties
 
 - Cas avec copie -> fichier copié: `I/O`
-- Tous les cas -> nouvelles entrées en BdD : 
+- Tous les cas -> nouvelles entrées en BdD :
   - filmroll : ajouter l'image, `SQL`
   - image : ajouter nom, date import, EXIFs, tags etc., `SQL`
 - Dans tous les cas -> mettre à jour la vue en table lumineuse (en fonction du filmroll, tags, EXIFs, etc.), `GUI`
@@ -31,13 +31,13 @@ Roadmap
     - depuis `import.c:_selection_changed()`,
     - vers la structure `GList * ((dt_import_t *import)->files)`
 - [x] [GUI] Récupérer les `str` du chemin cible, patterns sous-dossier cible, et jobcode :
-    - depuis `gtk_label` 
+    - depuis `gtk_label`
     - vers `anselrc` config keys :
       - `session/base_directory_pattern`,
       - `session/sub_directory_pattern`,
       - `session/filename_pattern`,
       - `ui_last/import_jobcode`,
-- [X] [GUI] Récupérer le statut import simple vs import avec copie : 
+- [X] [GUI] Récupérer le statut import simple vs import avec copie :
     - depuis `gtk_checkbox`,
     - vers `anselrc` -> `ui_last/import_copy`
 - [X] [GUI] Récupérer la date du fichier :

@@ -906,13 +906,14 @@ const dt_colorspaces_color_profile_t *dt_colorspaces_get_work_profile(const int 
   return p;
 }
 
-dt_colorspaces_color_profile_type_t dt_image_find_best_color_profile(uint32_t imgid, cmsHPROFILE *output)
+dt_colorspaces_color_profile_type_t dt_image_find_best_color_profile(uint32_t imgid, cmsHPROFILE *output, gboolean *new_profile)
 {
   // Note : when the image has already been opened from cache on the current session,
   // the embedded color profile is already inited and stored in img->profile.
 
   // Untagged images should be assumed to be sRGB.
   dt_colorspaces_color_profile_type_t color_profile = DT_COLORSPACE_SRGB;
+  *new_profile = FALSE;
 
   // Fetch filename for extension retrieval
   char filename[PATH_MAX] = { 0 };
@@ -938,7 +939,10 @@ dt_colorspaces_color_profile_type_t dt_image_find_best_color_profile(uint32_t im
     // Fast path : we already extracted ICC before. ICC profile is already inside.
     color_profile = DT_COLORSPACE_EMBEDDED_ICC;
     if(output != NULL)
+    {
       *output = dt_colorspaces_get_rgb_profile_from_mem(img->profile, img->profile_size);
+      *new_profile = TRUE;
+    }
     //fprintf(stdout, "Embedded ICC profile (inline)\n");
   }
   else if(!isnan(img->d65_color_matrix[0])
@@ -947,7 +951,10 @@ dt_colorspaces_color_profile_type_t dt_image_find_best_color_profile(uint32_t im
     // DNG and others : matrix inside EXIF
     color_profile = DT_COLORSPACE_EMBEDDED_MATRIX;
     if(output != NULL)
+    {
       *output = dt_colorspaces_create_xyzimatrix_profile((float(*)[3])img->d65_color_matrix);
+      *new_profile = TRUE;
+    }
     //fprintf(stdout, "Embedded EXIF matrix\n");
   }
   else if(dt_image_is_monochrome(img))
@@ -963,7 +970,10 @@ dt_colorspaces_color_profile_type_t dt_image_find_best_color_profile(uint32_t im
     // Color RAW
     color_profile = DT_COLORSPACE_STANDARD_MATRIX;
     if(output != NULL)
+    {
       *output = dt_colorspaces_create_xyzimatrix_profile((float(*)[3])img->adobe_XYZ_to_CAM);
+      *new_profile = TRUE;
+    }
     //fprintf(stdout, "Typical RAW\n");
   }
   else if(img->flags & DT_IMAGE_4BAYER)
@@ -1060,7 +1070,10 @@ dt_colorspaces_color_profile_type_t dt_image_find_best_color_profile(uint32_t im
     {
       color_profile = DT_COLORSPACE_EMBEDDED_ICC;
       if(output != NULL)
+      {
         *output = dt_colorspaces_get_rgb_profile_from_mem(img->profile, img->profile_size);
+        *new_profile = TRUE;
+      }
       //fprintf(stdout, "Embedded ICC (extracted)\n");
     }
     else if(already_set && img->profile && img->profile_size > 0)
@@ -1084,22 +1097,23 @@ finish:
 }
 
 
-const cmsHPROFILE dt_colorspaces_get_embedded_profile(const int imgid, dt_colorspaces_color_profile_type_t *type)
+const cmsHPROFILE dt_colorspaces_get_embedded_profile(const int imgid, dt_colorspaces_color_profile_type_t *type, gboolean *new_profile)
 {
   cmsHPROFILE output;
-  *type = dt_image_find_best_color_profile(imgid, &output);
+  *type = dt_image_find_best_color_profile(imgid, &output, new_profile);
   return output;
 }
 
 
 const dt_colorspaces_color_profile_t *_build_embedded_profile(const uint32_t imgid, dt_colorspaces_color_profile_type_t *type)
 {
-  cmsHPROFILE profile = dt_colorspaces_get_embedded_profile(imgid, type);
+  gboolean new_profile;
+  cmsHPROFILE profile = dt_colorspaces_get_embedded_profile(imgid, type, &new_profile);
 
   // create a dt profile object. -1 in all indices ensures it's hidden from GUI
   dt_colorspaces_color_profile_t *container = _create_profile(*type, profile, "", -1, -1, -1, -1, -1);
 
-  if(profile && container)
+  if(profile && container && new_profile)
   {
     // Set the name string for the profile
     char *lang = getenv("LANG");

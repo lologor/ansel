@@ -1057,7 +1057,7 @@ void distort_mask(struct dt_iop_module_t *self, struct dt_dev_pixelpipe_iop_t *p
     float *const restrict _out = out + (size_t)j * roi_out->width;
     for(int i = 0; i < roi_out->width; i++)
     {
-      float pin[3], pout[3];
+      float pin[4], pout[4];
 
       // convert output pixel coordinates to original image coordinates
       pout[0] = roi_out->x + i + cx;
@@ -1078,7 +1078,7 @@ void distort_mask(struct dt_iop_module_t *self, struct dt_dev_pixelpipe_iop_t *p
       pin[1] -= roi_in->y;
 
       // get output values by interpolation from input image
-      dt_interpolation_compute_pixel1c(interpolation, in, _out + i, pin[0], pin[1], roi_in->width,
+      dt_interpolation_compute_pixel4c(interpolation, in, _out + i, pin[0], pin[1], roi_in->width,
                                        roi_in->height, roi_in->width);
     }
   }
